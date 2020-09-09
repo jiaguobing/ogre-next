@@ -95,11 +95,11 @@ namespace Ogre
                 else
                 {
                     // Warn that this resource is not reloadable
-                    LogManager::getSingleton().stream(LML_TRIVIAL) 
-                        << "WARNING: " << mCreator->getResourceType()  
-                        << " instance '" << mName << "' was defined as manually "
-                        << "loaded, but no manual loader was provided. This Resource "
-                        << "will be lost if it has to be reloaded.";
+                    LogManager::getSingleton().logMessage(
+                        "WARNING: " + mCreator->getResourceType()   +
+                        " instance '" + mName + "' was defined as manually "
+                        "loaded, but no manual loader was provided. This Resource "
+                        "will be lost if it has to be reloaded.", LML_TRIVIAL );
                 }
             }
             else
@@ -213,11 +213,12 @@ namespace Ogre
                 else
                 {
                     // Warn that this resource is not reloadable
-                    LogManager::getSingleton().stream(LML_TRIVIAL) 
-                        << "WARNING: " << mCreator->getResourceType()  
-                        << " instance '" << mName << "' was defined as manually "
-                        << "loaded, but no manual loader was provided. This Resource "
-                        << "will be lost if it has to be reloaded.";
+                    LogManager::getSingleton().logMessage(
+                        "WARNING: " + mCreator->getResourceType() +
+                        " instance '" + mName + "' was defined as manually "
+                        "loaded, but no manual loader was provided. This Resource "
+                        "will be lost if it has to be reloaded.",
+                        LML_TRIVIAL );
                 }
                 postLoadImpl();
             }
@@ -347,9 +348,14 @@ namespace Ogre
     void Resource::reload(LoadingFlags flags)
     { 
             OGRE_LOCK_AUTO_MUTEX;
-        if (mLoadingState.get() == LOADSTATE_LOADED)
+        LoadingState old = mLoadingState.get();
+        if (old == (flags & Resource::LF_MARKED_FOR_RELOAD ?
+            LOADSTATE_UNLOADED_MARKED_FOR_RELOAD : LOADSTATE_LOADED))
         {
-            unload();
+            if(old == LOADSTATE_UNLOADED_MARKED_FOR_RELOAD)
+                mLoadingState.set(LOADSTATE_UNLOADED);
+            else
+                unload();
             load();
         }
     }
@@ -410,5 +416,9 @@ namespace Ogre
 
             }
     }
-
+    //-----------------------------------------------------------------------
+    //-----------------------------------------------------------------------
+    //-----------------------------------------------------------------------
+    ManualResourceLoader::~ManualResourceLoader() {}
+    Resource::Listener::~Listener() {}
 }

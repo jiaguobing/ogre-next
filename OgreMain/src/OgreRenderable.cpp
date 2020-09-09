@@ -64,6 +64,30 @@ namespace Ogre
         }
     }
     //-----------------------------------------------------------------------------------
+    void Renderable::_updateCustomGpuParameter(
+        const GpuProgramParameters_AutoConstantEntry &constantEntry, GpuProgramParameters *params ) const
+    {
+        CustomParameterMap::const_iterator i = mCustomParameters.find( constantEntry.data );
+        if( i != mCustomParameters.end() )
+        {
+            params->_writeRawConstant( constantEntry.physicalIndex, i->second,
+                                       constantEntry.elementCount );
+        }
+    }
+    //-----------------------------------------------------------------------------------
+    const String& Renderable::getDatablockOrMaterialName() const
+    {
+        HlmsDatablock* datablock = getDatablock();
+        if( datablock && datablock->getCreator()->getType() != HLMS_LOW_LEVEL )
+            if( const String *nameStr = datablock->getNameStr() )  // could be null if leaked
+                return *nameStr;
+
+        if( MaterialPtr mat = getMaterial() )
+            return mat->getName();
+
+        return BLANKSTRING;
+    }
+    //-----------------------------------------------------------------------------------
     void Renderable::setDatablockOrMaterialName( String materialName, String resourceGroup )
     {
         //Try first Hlms materials, then the low level ones.
@@ -147,7 +171,7 @@ namespace Ogre
         mHlmsHash       = hash;
         mHlmsCasterHash = casterHash;
 
-        assert( (mHlmsDatablock->getAlphaTest() == CMPF_ALWAYS_PASS ||
+        assert( (mHlmsDatablock == 0 || mHlmsDatablock->getAlphaTest() == CMPF_ALWAYS_PASS ||
                 mVaoPerLod[0].empty() || mVaoPerLod[0][0] == mVaoPerLod[1][0])
                 && "v2 objects must overload _setHlmsHashes to disable special "
                 "shadow mapping buffers on objects with alpha testing materials" );

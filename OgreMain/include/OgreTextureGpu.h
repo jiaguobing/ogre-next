@@ -35,6 +35,8 @@ THE SOFTWARE.
 
 #include "Vao/OgreBufferPacked.h"
 
+#include "ogrestd/vector.h"
+
 #include "OgreHeaderPrefix.h"
 
 namespace Ogre
@@ -155,6 +157,21 @@ namespace Ogre
             PoolOwner           = 1u << 13u
         };
     }
+
+    namespace TextureSourceType
+    {
+        enum TextureSourceType
+        {
+            Standard,           /// Regular texture
+            Shadow,             /// Created by compositor, for shadow mapping
+            Compositor,         /// Created by compositor
+            PoolOwner,          /// TextureFlags::PoolOwner is set
+            SharedDepthBuffer,  /// Created automatically, may be shared and reused by multiple colour
+                                /// targets
+            NumTextureSourceTypes
+        };
+    }
+
     /**
     @remarks
         Internal layout of data in memory:
@@ -205,6 +222,14 @@ namespace Ogre
         /// Used when AutomaticBatching is set. It indicates in which slice
         /// our actual data is, inside a texture array which we do not own.
         uint16      mInternalSliceStart;
+
+        /// This setting is for where the texture is created, e.g. its a compositor texture, a shadow
+        /// texture or standard texture loaded for a mesh etc...
+        ///
+        /// This value is merely for statistical tracking purposes
+        ///
+        /// @see    TextureSourceType::TextureSourceType
+        uint8 mSourceType;
 
         /// This setting can only be altered if mResidencyStatus == OnStorage).
         TextureTypes::TextureTypes  mTextureType;
@@ -303,6 +328,10 @@ namespace Ogre
         TextureTypes::TextureTypes getTextureType(void) const;
         TextureTypes::TextureTypes getInternalTextureType(void) const;
 
+        void _setSourceType( uint8 type );
+        /// @copydoc TextureGpu::mSourceType
+        uint8 getSourceType( void ) const;
+
         /** Sets the pixel format.
         @remarks
             If prefersLoadingFromFileAsSRGB() returns true, the format may not be fully honoured
@@ -384,8 +413,23 @@ namespace Ogre
         /// GpuResidency::OnSystemRam
         void _notifySysRamDownloadIsReady( uint8 *sysRamPtr, bool resyncOnly );
 
+        /**
+        @param dst
+        @param dstBox
+        @param dstMipLevel
+        @param srcBox
+        @param srcMipLevel
+        @param keepResolvedTexSynced
+            When true, if dst is an MSAA texture and is implicitly resolved
+            (i.e. dst->hasMsaaExplicitResolves() == false); the resolved texture
+            is also kept up to date.
+
+            Typically the reason to set this to false is if you plane on rendering more
+            stuff to dst texture and then resolve.
+        */
         virtual void copyTo( TextureGpu *dst, const TextureBox &dstBox, uint8 dstMipLevel,
-                             const TextureBox &srcBox, uint8 srcMipLevel );
+                             const TextureBox &srcBox, uint8 srcMipLevel,
+                             bool keepResolvedTexSynced = true );
 
         /** These 3 values  are used as defaults for the compositor to use, but they may be
             explicitly overriden by a RenderPassDescriptor.

@@ -134,7 +134,7 @@ namespace Ogre
     inline uint32 ForwardClustered::getSliceAtDepth( Real depth ) const
     {
         return static_cast<uint32>(
-                    floorf( Math::Log2( Ogre::max( -depth - mMinDistance, 1 ) ) * mInvExponentK ) );
+                    floorf( Math::Log2( std::max( -depth - mMinDistance, Real( 1 ) ) ) * mInvExponentK ) );
     }
     //-----------------------------------------------------------------------------------
     void ForwardClustered::execute( size_t threadId, size_t numThreads )
@@ -317,7 +317,7 @@ namespace Ogre
             nearDepthAtSlice = mCurrentCamera->getNearClipDistance();
 
         if( slice == mNumSlices - 1u )
-            farDepthAtSlice = Ogre::max( mCurrentCamera->getFarClipDistance(), farDepthAtSlice );
+            farDepthAtSlice = std::max( mCurrentCamera->getFarClipDistance(), farDepthAtSlice );
 
         Camera *camera = mThreadCameras[threadId];
 
@@ -779,13 +779,20 @@ namespace Ogre
 
             //Exclude shadow casting lights
             const LightClosestArray &shadowCastingLights = shadowNode->getShadowCastingLights();
+
+            mShadowCastingLightVisibility.clear();
+            mShadowCastingLightVisibility.reserve( shadowCastingLights.size() );
+
             LightClosestArray::const_iterator itor = shadowCastingLights.begin();
             LightClosestArray::const_iterator end  = shadowCastingLights.end();
 
             while( itor != end )
             {
                 if( itor->light )
+                {
+                    mShadowCastingLightVisibility.push_back( itor->light->getVisible() );
                     itor->light->setVisible( false );
+                }
                 ++itor;
             }
 
@@ -793,13 +800,17 @@ namespace Ogre
                                        Light::MAX_FORWARD_PLUS_LIGHTS, mCurrentLightList );
 
             //Restore shadow casting lights
+            FastArray<bool>::const_iterator itVis = mShadowCastingLightVisibility.begin();
             itor = shadowCastingLights.begin();
             end  = shadowCastingLights.end();
 
             while( itor != end )
             {
                 if( itor->light )
-                    itor->light->setVisible( true );
+                {
+                    itor->light->setVisible( *itVis );
+                    ++itVis;
+                }
                 ++itor;
             }
         }

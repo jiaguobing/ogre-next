@@ -150,7 +150,7 @@ namespace Ogre
                                         : D3D11Mappings::get( mSampleDescription.getMsaaPattern() );
         }
 
-        sd.Flags        = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+        sd.Flags        = _getSwapChainFlags();
         sd.BufferUsage  = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 
         sd.BufferCount = _getSwapChainBufferCount();
@@ -373,7 +373,7 @@ namespace Ogre
             else
             {
                 RECT rc;
-                SetRect( &rc, mLeft, mTop, mRequestedWidth, mRequestedHeight );
+                SetRect( &rc, mLeft, mTop, mLeft+mRequestedWidth, mTop+mRequestedHeight );
                 if( !outerSize )
                 {
                     //User requested "client resolution", we need to grow the rect
@@ -498,7 +498,7 @@ namespace Ogre
     {
         if( mHwnd && !mRequestedFullscreenMode )
         {
-            SetWindowPos( mHwnd, 0, top, left, 0, 0,
+            SetWindowPos( mHwnd, 0, left, top, 0, 0,
                           SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE );
         }
     }

@@ -42,6 +42,7 @@
 #include "OgreDepthBuffer.h"
 
 #include "OgreProfiler.h"
+#include "OgreString.h"
 
 #include <iostream>
 #include <algorithm>
@@ -508,7 +509,7 @@ namespace Ogre
             // setHidden takes care of mapping or unmapping the window
             // and also calls setFullScreen if appropriate.
             setHidden(hidden);
-            XFlush(xDisplay);
+            XSync(xDisplay, False);
 
             WindowEventUtilities::_addRenderWindow(this);
         }

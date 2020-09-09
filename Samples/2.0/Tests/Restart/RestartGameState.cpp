@@ -50,10 +50,9 @@ namespace Demo
                                             Ogre::v1::HardwareBuffer::HBU_STATIC,
                                             Ogre::v1::HardwareBuffer::HBU_STATIC );
 
-        Ogre::MeshPtr planeMesh = Ogre::MeshManager::getSingleton().createManual(
-                    "Plane", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME );
-
-        planeMesh->importV1( planeMeshV1.get(), true, true, true );
+        Ogre::MeshPtr planeMesh = Ogre::MeshManager::getSingleton().createByImportingV1(
+                    "Plane", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+                    planeMeshV1.get(), true, true, true );
 
         {
             Ogre::Item *item = sceneManager->createItem( planeMesh, Ogre::SCENE_DYNAMIC );
@@ -158,8 +157,8 @@ namespace Demo
                     datablock->setTexture( Ogre::PBSM_REFLECTION, texture );
                     datablock->setDiffuse( Ogre::Vector3( 0.0f, 1.0f, 0.0f ) );
 
-                    datablock->setRoughness( std::max( 0.02f, x / Ogre::max( 1, (float)(numX-1) ) ) );
-                    datablock->setFresnel( Ogre::Vector3( z / Ogre::max( 1, (float)(numZ-1) ) ), false );
+                    datablock->setRoughness( std::max( 0.02f, x / std::max( 1.0f, (float)(numX-1) ) ) );
+                    datablock->setFresnel( Ogre::Vector3( z / std::max( 1.0f, (float)(numZ-1) ) ), false );
 
                     Ogre::Item *item = sceneManager->createItem( "Sphere1000.mesh",
                                                                  Ogre::ResourceGroupManager::

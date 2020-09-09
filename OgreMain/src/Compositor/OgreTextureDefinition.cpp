@@ -269,6 +269,15 @@ namespace Ogre
         return retVal;
     }
     //-----------------------------------------------------------------------------------
+    void TextureDefinitionBase::removeRenderTextureView( IdString name )
+    {
+        RenderTargetViewDefMap::iterator itor = mLocalRtvs.find( name );
+        if( itor != mLocalRtvs.end() )
+            mLocalRtvs.erase( itor );
+    }
+    //-----------------------------------------------------------------------------------
+    void TextureDefinitionBase::removeAllRenderTextureViews( void ) { mLocalRtvs.clear(); }
+    //-----------------------------------------------------------------------------------
     void TextureDefinitionBase::createTextures( const TextureDefinitionVec &textureDefs,
                                                 CompositorChannelVec &inOutTexContainer,
                                                 IdType id,
@@ -340,6 +349,7 @@ namespace Ogre
                 (textureDef.depthOrSlices == 1u || textureDef.textureType > TextureTypes::Type2D ) &&
                 (textureDef.depthOrSlices == 6 || textureDef.textureType != TextureTypes::TypeCube) );
 
+        tex->_setSourceType( TextureSourceType::Compositor );
         tex->setResolution( width, height, textureDef.depthOrSlices );
         if( textureDef.format != PFG_UNKNOWN )
             tex->setPixelFormat( textureDef.format );

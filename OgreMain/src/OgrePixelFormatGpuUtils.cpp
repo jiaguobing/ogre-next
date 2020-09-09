@@ -529,7 +529,7 @@ namespace Ogre
                 if( !(flags & PFF_SIGNED) )
                 {
                     val = Math::saturate( val );
-                    if( flags & PFF_SRGB )
+                    if( flags & PFF_SRGB && i != 3u )
                         val = toSRGB( val );
                     val *= (float)std::numeric_limits<T>::max();
                     ((T*)dstPtr)[i] = static_cast<T>( roundf( val ) );
@@ -562,14 +562,14 @@ namespace Ogre
                 float rawValue = val / (float)std::numeric_limits<T>::max();
                 if( !(flags & PFF_SIGNED) )
                 {
-                    if( flags & PFF_SRGB )
+                    if( flags & PFF_SRGB && i != 3u )
                         rawValue = fromSRGB( rawValue );
                     rgbaPtr[i] = rawValue;
                 }
                 else
                 {
                     // -128 & -127 and -32768 & -32767 both map to -1 according to D3D10 rules.
-                    rgbaPtr[i] = Ogre::max( rawValue, -1.0f );
+                    rgbaPtr[i] = std::max( rawValue, -1.0f );
                 }
             }
             else
@@ -1529,6 +1529,26 @@ namespace Ogre
         }
 
         // The brute force fallback
+        float rangeM = 1.0f;
+        float rangeA = 0.0f;
+
+        const bool bSrcSigned = isSigned( srcFormat );
+        if( bSrcSigned != isSigned( dstFormat ) && isNormalized( srcFormat ) )
+        {
+            if( !bSrcSigned )
+            {
+                // unormToSnorm
+                rangeM = 2.0f;
+                rangeA = -1.0f;
+            }
+            else
+            {
+                // snormToUnorm
+                rangeM = 0.5f;
+                rangeA = 0.5f;
+            }
+        }
+
         float rgba[4];
         for( size_t z=0; z<depthOrSlices; ++z )
         {
@@ -1541,6 +1561,8 @@ namespace Ogre
                 for( size_t x=0; x<width; ++x )
                 {
                     unpackColour( rgba, srcFormat, srcPtr );
+                    for( int i = 0; i < 4; ++i )
+                        rgba[i] = rgba[i] * rangeM + rangeA;
                     packColour( rgba, dstFormat, dstPtr );
                     srcPtr += srcBytesPerPixel;
                     dstPtr += dstBytesPerPixel;

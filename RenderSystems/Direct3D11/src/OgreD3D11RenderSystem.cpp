@@ -35,7 +35,9 @@ THE SOFTWARE.
 #include "OgreViewport.h"
 #include "OgreLogManager.h"
 #include "OgreMeshManager.h"
+#include "OgreMeshManager2.h"
 #include "OgreSceneManagerEnumerator.h"
+#include "Compositor/OgreCompositorManager2.h"
 #include "OgreD3D11HardwareBufferManager.h"
 #include "OgreD3D11HardwareIndexBuffer.h"
 #include "OgreD3D11HardwareVertexBuffer.h"
@@ -72,6 +74,8 @@ THE SOFTWARE.
 
 #include "OgreOSVersionHelpers.h"
 #include "OgreProfiler.h"
+
+#include <sstream>
 
 #ifdef _WIN32_WINNT_WIN10
     #include <d3d11_3.h>
@@ -725,7 +729,7 @@ namespace Ogre
     Window* D3D11RenderSystem::_initialise( bool autoCreateWindow, const String& windowTitle )
     {
         Window* autoWindow = NULL;
-        LogManager::getSingleton().logMessage( "D3D11 : Subsystem Initialising" );
+        LogManager::getSingleton().logMessage( "D3D11: Subsystem Initialising" );
 
         if(IsWorkingUnderNsight())
             LogManager::getSingleton().logMessage( "D3D11: Nvidia Nsight found");
@@ -1029,14 +1033,20 @@ namespace Ogre
 
 #ifdef _WIN32_WINNT_WIN10
         //Check if D3D11.3 is installed. If so, typed UAV loads are supported
-        ID3D11Device3 *d3dDeviceVersion113 = 0;
-        HRESULT hr = mDevice->QueryInterface( __uuidof(ID3D11Device3),
-                                              reinterpret_cast<void**>( &d3dDeviceVersion113 ) );
+        ComPtr<ID3D11Device3> d3dDeviceVersion113;
+        HRESULT hr = mDevice->QueryInterface( d3dDeviceVersion113.GetAddressOf() );
         if( SUCCEEDED( hr ) && d3dDeviceVersion113 )
         {
             rsc->setCapability(RSC_TYPED_UAV_LOADS);
-            d3dDeviceVersion113->Release();
         }
+#ifdef NTDDI_WIN10_TH2
+        D3D11_FEATURE_DATA_D3D11_OPTIONS3 fOpt3 = {};
+        hr = mDevice->CheckFeatureSupport( D3D11_FEATURE_D3D11_OPTIONS3, &fOpt3, sizeof( fOpt3 ) );
+        if( SUCCEEDED( hr ) && fOpt3.VPAndRTArrayIndexFromAnyShaderFeedingRasterizer )
+        {
+            rsc->setCapability( RSC_VP_AND_RT_ARRAY_INDEX_FROM_ANY_SHADER );
+        }
+#endif
 #endif
 
         rsc->setCapability(RSC_VBO);
@@ -1191,7 +1201,10 @@ namespace Ogre
         if (mFeatureLevel >= D3D_FEATURE_LEVEL_11_0)
         {
             rsc->setCapability(RSC_TEXTURE_COMPRESSION_BC6H_BC7);
+            rsc->setCapability(RSC_UAV);
         }
+
+        rsc->setCapability(RSC_DEPTH_CLAMP);
 
         rsc->setCapability(RSC_HWRENDER_TO_TEXTURE);
         rsc->setCapability(RSC_TEXTURE_FLOAT);
@@ -1572,7 +1585,7 @@ namespace Ogre
     }
     //-----------------------------------------------------------------------------------
     TextureGpu* D3D11RenderSystem::createDepthBufferFor( TextureGpu *colourTexture, bool preferDepthTexture,
-                                                         PixelFormatGpu depthBufferFormat )
+                                                         PixelFormatGpu depthBufferFormat, uint16 poolId )
     {
         if( depthBufferFormat == PFG_UNKNOWN )
         {
@@ -1583,7 +1596,7 @@ namespace Ogre
         }
 
         return RenderSystem::createDepthBufferFor( colourTexture, preferDepthTexture,
-                                                   depthBufferFormat );
+                                                   depthBufferFormat, poolId );
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_notifyWindowDestroyed( Window *window )
@@ -1653,9 +1666,17 @@ namespace Ogre
         // release device depended resources
         fireDeviceEvent(&mDevice, "DeviceLost");
 
+        Root::getSingleton().getCompositorManager2()->_releaseManualHardwareResources();
         SceneManagerEnumerator::SceneManagerIterator scnIt = SceneManagerEnumerator::getSingleton().getSceneManagerIterator();
         while(scnIt.hasMoreElements())
             scnIt.getNext()->_releaseManualHardwareResources();
+
+        Root::getSingleton().getHlmsManager()->_changeRenderSystem((RenderSystem*)0);
+
+        MeshManager::getSingleton().unloadAll(Resource::LF_MARKED_FOR_RELOAD);
+
+        static_cast<D3D11TextureGpuManager*>(mTextureGpuManager)->_destroyD3DResources();
+        static_cast<D3D11VaoManager*>(mVaoManager)->_destroyD3DResources();
 
         notifyDeviceLost(&mDevice);
 
@@ -1667,11 +1688,18 @@ namespace Ogre
         // recreate device
         createDevice( mLastWindowTitlePassedToExtensions );
 
+        static_cast<D3D11VaoManager*>(mVaoManager)->_createD3DResources();
+        static_cast<D3D11TextureGpuManager*>(mTextureGpuManager)->_createD3DResources();
+
         // recreate device depended resources
         notifyDeviceRestored(&mDevice);
 
-        v1::MeshManager::getSingleton().reloadAll(Resource::LF_PRESERVE_STATE);
+        Root::getSingleton().getHlmsManager()->_changeRenderSystem(this);
 
+        v1::MeshManager::getSingleton().reloadAll(Resource::LF_PRESERVE_STATE);
+        MeshManager::getSingleton().reloadAll(Resource::LF_MARKED_FOR_RELOAD);
+
+        Root::getSingleton().getCompositorManager2()->_restoreManualHardwareResources();
         scnIt = SceneManagerEnumerator::getSingleton().getSceneManagerIterator();
         while(scnIt.hasMoreElements())
             scnIt.getNext()->_restoreManualHardwareResources();
@@ -1681,10 +1709,10 @@ namespace Ogre
         LogManager::getSingleton().logMessage("D3D11: Device was restored.");
     }
     //---------------------------------------------------------------------
-    void D3D11RenderSystem::validateDevice(bool forceDeviceElection)
+    bool D3D11RenderSystem::validateDevice(bool forceDeviceElection)
     {
         if(mDevice.isNull())
-            return;
+            return false;
 
         // The D3D Device is no longer valid if the elected adapter changes or if
         // the device has been removed.
@@ -1699,12 +1727,19 @@ namespace Ogre
             LUID newLUID = newDriver->getAdapterIdentifier().AdapterLuid;
             LUID prevLUID = mActiveD3DDriver.getAdapterIdentifier().AdapterLuid;
             anotherIsElected = (newLUID.LowPart != prevLUID.LowPart) || (newLUID.HighPart != prevLUID.HighPart);
+#if OGRE_DEBUG_MODE >= OGRE_DEBUG_HIGH
+            anotherIsElected = true; // simulate switching device
+#endif
         }
 
         if(anotherIsElected || mDevice.IsDeviceLost())
         {
             handleDeviceLost();
+
+            return !mDevice.IsDeviceLost();
         }
+
+        return true;
     }
     //---------------------------------------------------------------------
     VertexElementType D3D11RenderSystem::getColourVertexElementType(void) const
@@ -1777,18 +1812,17 @@ namespace Ogre
                                           uint32 hazardousTexIdx )
     {
         ID3D11DeviceContextN *context = mDevice.GetImmediateContext();
-        ID3D11ShaderResourceView **srvList =
-                reinterpret_cast<ID3D11ShaderResourceView**>( set->mRsData );
+        ComPtr<ID3D11ShaderResourceView> *srvList =
+                reinterpret_cast<ComPtr<ID3D11ShaderResourceView>*>( set->mRsData );
 
-        ID3D11ShaderResourceView *hazardousSrv = 0;
+        ComPtr<ID3D11ShaderResourceView> hazardousSrv;
         if( hazardousTexIdx < set->mTextures.size() )
         {
             //Is the texture currently bound as RTT?
             if( mCurrentRenderPassDescriptor->hasAttachment( set->mTextures[hazardousTexIdx] ) )
             {
                 //Then do not set it!
-                hazardousSrv = srvList[hazardousTexIdx];
-                srvList[hazardousTexIdx] = 0;
+                srvList[hazardousTexIdx].Swap( hazardousSrv );
             }
         }
 
@@ -1802,19 +1836,19 @@ namespace Ogre
             switch( i )
             {
             case VertexShader:
-                context->VSSetShaderResources( slotStart + texIdx, numTexturesUsed, &srvList[texIdx] );
+                context->VSSetShaderResources( slotStart + texIdx, numTexturesUsed, srvList[texIdx].GetAddressOf() );
                 break;
             case PixelShader:
-                context->PSSetShaderResources( slotStart + texIdx, numTexturesUsed, &srvList[texIdx] );
+                context->PSSetShaderResources( slotStart + texIdx, numTexturesUsed, srvList[texIdx].GetAddressOf());
                 break;
             case GeometryShader:
-                context->GSSetShaderResources( slotStart + texIdx, numTexturesUsed, &srvList[texIdx] );
+                context->GSSetShaderResources( slotStart + texIdx, numTexturesUsed, srvList[texIdx].GetAddressOf());
                 break;
             case HullShader:
-                context->HSSetShaderResources( slotStart + texIdx, numTexturesUsed, &srvList[texIdx] );
+                context->HSSetShaderResources( slotStart + texIdx, numTexturesUsed, srvList[texIdx].GetAddressOf());
                 break;
             case DomainShader:
-                context->DSSetShaderResources( slotStart + texIdx, numTexturesUsed, &srvList[texIdx] );
+                context->DSSetShaderResources( slotStart + texIdx, numTexturesUsed, srvList[texIdx].GetAddressOf());
                 break;
             }
 
@@ -1825,14 +1859,14 @@ namespace Ogre
 
         //Restore the SRV with the hazardous texture.
         if( hazardousSrv )
-            srvList[hazardousTexIdx] = hazardousSrv;
+            srvList[hazardousTexIdx].Swap( hazardousSrv );
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_setTextures( uint32 slotStart, const DescriptorSetTexture2 *set )
     {
         ID3D11DeviceContextN *context = mDevice.GetImmediateContext();
-        ID3D11ShaderResourceView **srvList =
-                reinterpret_cast<ID3D11ShaderResourceView**>( set->mRsData );
+        ComPtr<ID3D11ShaderResourceView> *srvList =
+                reinterpret_cast<ComPtr<ID3D11ShaderResourceView>*>( set->mRsData );
         UINT texIdx = 0;
         for( size_t i=0u; i<NumShaderTypes; ++i )
         {
@@ -1843,19 +1877,19 @@ namespace Ogre
             switch( i )
             {
             case VertexShader:
-                context->VSSetShaderResources( slotStart + texIdx, numTexturesUsed, &srvList[texIdx] );
+                context->VSSetShaderResources( slotStart + texIdx, numTexturesUsed, srvList[texIdx].GetAddressOf() );
                 break;
             case PixelShader:
-                context->PSSetShaderResources( slotStart + texIdx, numTexturesUsed, &srvList[texIdx] );
+                context->PSSetShaderResources( slotStart + texIdx, numTexturesUsed, srvList[texIdx].GetAddressOf() );
                 break;
             case GeometryShader:
-                context->GSSetShaderResources( slotStart + texIdx, numTexturesUsed, &srvList[texIdx] );
+                context->GSSetShaderResources( slotStart + texIdx, numTexturesUsed, srvList[texIdx].GetAddressOf() );
                 break;
             case HullShader:
-                context->HSSetShaderResources( slotStart + texIdx, numTexturesUsed, &srvList[texIdx] );
+                context->HSSetShaderResources( slotStart + texIdx, numTexturesUsed, srvList[texIdx].GetAddressOf() );
                 break;
             case DomainShader:
-                context->DSSetShaderResources( slotStart + texIdx, numTexturesUsed, &srvList[texIdx] );
+                context->DSSetShaderResources( slotStart + texIdx, numTexturesUsed, srvList[texIdx].GetAddressOf() );
                 break;
             }
 
@@ -1924,8 +1958,8 @@ namespace Ogre
         uint32 newSrvCount = 0;
 
         ID3D11DeviceContextN *context = mDevice.GetImmediateContext();
-        ID3D11ShaderResourceView **srvList =
-                reinterpret_cast<ID3D11ShaderResourceView**>( set->mRsData );
+        ComPtr<ID3D11ShaderResourceView> *srvList =
+                reinterpret_cast<ComPtr<ID3D11ShaderResourceView>*>( set->mRsData );
         UINT texIdx = 0;
         for( size_t i=0u; i<NumShaderTypes; ++i )
         {
@@ -1933,7 +1967,7 @@ namespace Ogre
             if( !numTexturesUsed )
                 continue;
 
-            context->CSSetShaderResources( slotStart + texIdx, numTexturesUsed, &srvList[texIdx] );
+            context->CSSetShaderResources( slotStart + texIdx, numTexturesUsed, srvList[texIdx].GetAddressOf() );
 
             mMaxComputeShaderSrvCount = std::max( mMaxComputeShaderSrvCount,
                                                   slotStart + texIdx + numTexturesUsed );
@@ -1956,8 +1990,8 @@ namespace Ogre
         uint32 newSrvCount = 0;
 
         ID3D11DeviceContextN *context = mDevice.GetImmediateContext();
-        ID3D11ShaderResourceView **srvList =
-                reinterpret_cast<ID3D11ShaderResourceView**>( set->mRsData );
+        ComPtr<ID3D11ShaderResourceView> *srvList =
+                reinterpret_cast<ComPtr<ID3D11ShaderResourceView>*>( set->mRsData );
         UINT texIdx = 0;
         for( size_t i=0u; i<NumShaderTypes; ++i )
         {
@@ -1965,7 +1999,7 @@ namespace Ogre
             if( !numTexturesUsed )
                 continue;
 
-            context->CSSetShaderResources( slotStart + texIdx, numTexturesUsed, &srvList[texIdx] );
+            context->CSSetShaderResources( slotStart + texIdx, numTexturesUsed, srvList[texIdx].GetAddressOf() );
 
             newSrvCount = std::max( newSrvCount, slotStart + texIdx + numTexturesUsed );
             texIdx += numTexturesUsed;
@@ -2018,11 +2052,11 @@ namespace Ogre
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_setUavCS( uint32 slotStart, const DescriptorSetUav *set )
     {
-        ID3D11UnorderedAccessView **uavList =
-                reinterpret_cast<ID3D11UnorderedAccessView**>( set->mRsData );
+        ComPtr<ID3D11UnorderedAccessView> *uavList =
+                reinterpret_cast<ComPtr<ID3D11UnorderedAccessView>*>( set->mRsData );
         ID3D11DeviceContextN *context = mDevice.GetImmediateContext();
         context->CSSetUnorderedAccessViews( slotStart, static_cast<UINT>( set->mUavs.size() ),
-                                            uavList, 0 );
+                                            uavList[0].GetAddressOf(), 0 );
 
         mMaxBoundUavCS = std::max<uint32>( mMaxBoundUavCS, slotStart + set->mUavs.size() );
     }
@@ -2106,7 +2140,7 @@ namespace Ogre
         depthStencilDesc.BackFace.StencilPassOp         = D3D11Mappings::get( stateBack.stencilPassOp );
         depthStencilDesc.BackFace.StencilFailOp         = D3D11Mappings::get( stateBack.stencilFailOp );
 
-        HRESULT hr = mDevice->CreateDepthStencilState( &depthStencilDesc, &pso->depthStencilState );
+        HRESULT hr = mDevice->CreateDepthStencilState( &depthStencilDesc, pso->depthStencilState.GetAddressOf() );
         if( FAILED(hr) )
         {
             delete pso;
@@ -2240,8 +2274,6 @@ namespace Ogre
     void D3D11RenderSystem::_hlmsPipelineStateObjectDestroyed( HlmsPso *pso )
     {
         D3D11HlmsPso *d3dPso = reinterpret_cast<D3D11HlmsPso*>( pso->rsData );
-        d3dPso->depthStencilState->Release();
-        d3dPso->inputLayout->Release();
         delete d3dPso;
         pso->rsData = 0;
     }
@@ -2276,7 +2308,7 @@ namespace Ogre
         rasterDesc.SlopeScaledDepthBias = newBlock->mDepthBiasSlopeScale * biasSign;
         rasterDesc.DepthBiasClamp   = 0;
 
-        rasterDesc.DepthClipEnable  = true;
+        rasterDesc.DepthClipEnable  = !newBlock->mDepthClamp;
         rasterDesc.ScissorEnable    = newBlock->mScissorTestEnabled;
 
         rasterDesc.MultisampleEnable     = true;
@@ -2431,7 +2463,7 @@ namespace Ogre
     void D3D11RenderSystem::_descriptorSetTextureCreated( DescriptorSetTexture *newSet )
     {
         const size_t numElements = newSet->mTextures.size();
-        ID3D11ShaderResourceView **srvList = new ID3D11ShaderResourceView*[numElements];
+        ComPtr<ID3D11ShaderResourceView> *srvList = new ComPtr<ID3D11ShaderResourceView>[numElements];
         newSet->mRsData = srvList;
 
         size_t texIdx = 0;
@@ -2447,10 +2479,6 @@ namespace Ogre
                     const D3D11TextureGpu *texture = static_cast<const D3D11TextureGpu*>( *itor );
                     srvList[texIdx] = texture->createSrv();
                 }
-                else
-                {
-                    srvList[texIdx] = 0;
-                }
 
                 ++texIdx;
                 ++itor;
@@ -2461,13 +2489,8 @@ namespace Ogre
     void D3D11RenderSystem::_descriptorSetTextureDestroyed( DescriptorSetTexture *set )
     {
         const size_t numElements = set->mTextures.size();
-        ID3D11ShaderResourceView **srvList =
-                reinterpret_cast<ID3D11ShaderResourceView**>( set->mRsData );
-        for( size_t i=0; i<numElements; ++i )
-        {
-            if( srvList[i] )
-                srvList[i]->Release();
-        }
+        ComPtr<ID3D11ShaderResourceView> *srvList =
+                reinterpret_cast<ComPtr<ID3D11ShaderResourceView>*>( set->mRsData );
 
         delete [] srvList;
         set->mRsData = 0;
@@ -2476,7 +2499,7 @@ namespace Ogre
     void D3D11RenderSystem::_descriptorSetTexture2Created( DescriptorSetTexture2 *newSet )
     {
         const size_t numElements = newSet->mTextures.size();
-        ID3D11ShaderResourceView **srvList = new ID3D11ShaderResourceView*[numElements];
+        ComPtr<ID3D11ShaderResourceView> *srvList = new ComPtr<ID3D11ShaderResourceView>[numElements];
         newSet->mRsData = srvList;
 
         FastArray<DescriptorSetTexture2::Slot>::const_iterator itor = newSet->mTextures.begin();
@@ -2484,7 +2507,7 @@ namespace Ogre
         for( size_t i=0u; i<numElements; ++i )
         {
             if( itor->empty() )
-                srvList[i] = 0;
+                ;
             else if( itor->isTexture() )
             {
                 const DescriptorSetTexture2::TextureSlot &texSlot = itor->getTexture();
@@ -2506,10 +2529,8 @@ namespace Ogre
     void D3D11RenderSystem::_descriptorSetTexture2Destroyed( DescriptorSetTexture2 *set )
     {
         const size_t numElements = set->mTextures.size();
-        ID3D11ShaderResourceView **srvList =
-                reinterpret_cast<ID3D11ShaderResourceView**>( set->mRsData );
-        for( size_t i=0; i<numElements; ++i )
-            srvList[i]->Release();
+        ComPtr<ID3D11ShaderResourceView> *srvList =
+                reinterpret_cast<ComPtr<ID3D11ShaderResourceView>*>( set->mRsData );
 
         delete [] srvList;
         set->mRsData = 0;
@@ -2518,7 +2539,7 @@ namespace Ogre
     void D3D11RenderSystem::_descriptorSetUavCreated( DescriptorSetUav *newSet )
     {
         const size_t numElements = newSet->mUavs.size();
-        ID3D11UnorderedAccessView **uavList = new ID3D11UnorderedAccessView*[numElements];
+        ComPtr<ID3D11UnorderedAccessView> *uavList = new ComPtr<ID3D11UnorderedAccessView>[numElements];
         newSet->mRsData = uavList;
 
         FastArray<DescriptorSetUav::Slot>::const_iterator itor = newSet->mUavs.begin();
@@ -2526,7 +2547,7 @@ namespace Ogre
         for( size_t i=0u; i<numElements; ++i )
         {
             if( itor->empty() )
-                uavList[i] = 0;
+                ;
             else if( itor->isTexture() )
             {
                 const DescriptorSetUav::TextureSlot &texSlot = itor->getTexture();
@@ -2548,10 +2569,8 @@ namespace Ogre
     void D3D11RenderSystem::_descriptorSetUavDestroyed( DescriptorSetUav *set )
     {
         const size_t numElements = set->mUavs.size();
-        ID3D11UnorderedAccessView **uavList =
-                reinterpret_cast<ID3D11UnorderedAccessView**>( set->mRsData );
-        for( size_t i=0; i<numElements; ++i )
-            uavList[i]->Release();
+        ComPtr<ID3D11UnorderedAccessView> *uavList =
+                reinterpret_cast<ComPtr<ID3D11UnorderedAccessView>*>( set->mRsData );
 
         delete [] uavList;
         set->mRsData = 0;
@@ -2630,6 +2649,8 @@ namespace Ogre
         deviceContext->PSSetShader( 0, 0, 0 );
         deviceContext->CSSetShader( 0, 0, 0 );
 
+        mBoundComputeProgram = 0;
+
         if( !pso )
             return;
 
@@ -2640,9 +2661,9 @@ namespace Ogre
 
         mPso = d3dPso;
 
-        deviceContext->OMSetDepthStencilState( d3dPso->depthStencilState, mStencilRef );
+        deviceContext->OMSetDepthStencilState( d3dPso->depthStencilState.Get(), mStencilRef );
         deviceContext->IASetPrimitiveTopology( d3dPso->topology );
-        deviceContext->IASetInputLayout( d3dPso->inputLayout );
+        deviceContext->IASetInputLayout( d3dPso->inputLayout.Get() );
 
         if( d3dPso->vertexShader )
         {
@@ -2773,29 +2794,6 @@ namespace Ogre
         mComputeProgramBound = false;
     }
     //---------------------------------------------------------------------
-    // TODO: Move this class to the right place.
-    class D3D11RenderOperationState
-    {
-    public:
-        ID3D11ShaderResourceView * mTextures[OGRE_MAX_TEXTURE_LAYERS];
-        size_t mTexturesCount;
-
-        D3D11RenderOperationState() :
-            mTexturesCount(0)
-        {
-            for (size_t i = 0 ; i < OGRE_MAX_TEXTURE_LAYERS ; i++)
-            {
-                mTextures[i] = 0;
-            }
-        }
-
-
-        ~D3D11RenderOperationState()
-        {
-        }
-    };
-
-    //---------------------------------------------------------------------
     void D3D11RenderSystem::_render(const v1::RenderOperation& op)
     {
 
@@ -2821,108 +2819,6 @@ namespace Ogre
 
         // Call super class
         RenderSystem::_render(op);
-
-        D3D11RenderOperationState stackOpState;
-        D3D11RenderOperationState * opState = &stackOpState;
-
-        if(mSamplerStatesChanged)
-        {
-            // samplers mapping
-            const size_t numberOfSamplers = std::min( mLastTextureUnitState,
-                                                      (size_t)(OGRE_MAX_TEXTURE_LAYERS + 1) );
-            opState->mTexturesCount = numberOfSamplers;
-
-            for (size_t n = 0; n < numberOfSamplers; n++)
-            {
-                ID3D11ShaderResourceView *texture = NULL;
-                opState->mTextures[n]       = texture;
-            }
-            for (size_t n = opState->mTexturesCount; n < OGRE_MAX_TEXTURE_LAYERS; n++)
-            {
-                opState->mTextures[n] = NULL;
-            }
-        }
-
-        if (mSamplerStatesChanged && opState->mTexturesCount > 0 ) //  if the NumTextures is 0, the operation effectively does nothing.
-        {
-            mSamplerStatesChanged = false; // now it's time to set it to false
-            /// Pixel Shader binding
-            {
-                mDevice.GetImmediateContext()->PSSetShaderResources(static_cast<UINT>(0), static_cast<UINT>(opState->mTexturesCount), &opState->mTextures[0]);
-                if (mDevice.isError())
-                {
-                    String errorDescription = mDevice.getErrorDescription();
-                    OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
-                        "D3D11 device cannot set pixel shader resources\nError Description:" + errorDescription,
-                        "D3D11RenderSystem::_render");
-                }
-            }
-
-            /// Vertex Shader binding
-
-            /*if (mBindingType == TextureUnitState::BindingType::BT_VERTEX)*/
-
-            {
-                if (mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
-                {
-                    mDevice.GetImmediateContext()->VSSetShaderResources(static_cast<UINT>(0), static_cast<UINT>(opState->mTexturesCount), &opState->mTextures[0]);
-                    if (mDevice.isError())
-                    {
-                        String errorDescription = mDevice.getErrorDescription();
-                        OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
-                            "D3D11 device cannot set pixel shader resources\nError Description:" + errorDescription,
-                            "D3D11RenderSystem::_render");
-                    }
-                }
-            }
-
-            /// Geometry Shader binding
-            {
-                if (mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
-                {
-                    mDevice.GetImmediateContext()->GSSetShaderResources(static_cast<UINT>(0), static_cast<UINT>(opState->mTexturesCount), &opState->mTextures[0]);
-                    if (mDevice.isError())
-                    {
-                        String errorDescription = mDevice.getErrorDescription();
-                        OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
-                            "D3D11 device cannot set geometry shader resources\nError Description:" + errorDescription,
-                            "D3D11RenderSystem::_render");
-                    }
-                }
-            }
-
-            /// Hull Shader binding
-            if (mPso->hullShader && mBindingType == TextureUnitState::BT_TESSELLATION_HULL)
-            {
-                if (mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
-                {
-                    mDevice.GetImmediateContext()->HSSetShaderResources(static_cast<UINT>(0), static_cast<UINT>(opState->mTexturesCount), &opState->mTextures[0]);
-                    if (mDevice.isError())
-                    {
-                        String errorDescription = mDevice.getErrorDescription();
-                        OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
-                            "D3D11 device cannot set hull shader resources\nError Description:" + errorDescription,
-                            "D3D11RenderSystem::_render");
-                    }
-                }
-            }
-
-            /// Domain Shader binding
-            if (mPso->domainShader && mBindingType == TextureUnitState::BT_TESSELLATION_DOMAIN)
-            {
-                if (mFeatureLevel >= D3D_FEATURE_LEVEL_10_0)
-                {
-                    mDevice.GetImmediateContext()->DSSetShaderResources(static_cast<UINT>(0), static_cast<UINT>(opState->mTexturesCount), &opState->mTextures[0]);
-                    if (mDevice.isError())
-                    {
-                        String errorDescription = mDevice.getErrorDescription();
-                        OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
-                            "D3D11 device cannot set domain shader resources\nError Description:" + errorDescription,
-                            "D3D11RenderSystem::_render");
-                    }
-                }
-            }
-        }
 
         ComPtr<ID3D11Buffer> pSOTarget;
         // Mustn't bind a emulated vertex, pixel shader (see below), if we are rendering to a stream out buffer
@@ -3163,10 +3059,10 @@ namespace Ogre
         ID3D11DeviceContextN *deviceContext = mDevice.GetImmediateContext();
 
         deviceContext->IASetVertexBuffers( 0, vao->mVertexBuffers.size() + 1, //+1 due to DrawId
-                                           sharedData->mVertexBuffers,
+                                           sharedData->mVertexBuffers[0].GetAddressOf(),
                                            sharedData->mStrides,
                                            sharedData->mOffsets );
-        deviceContext->IASetIndexBuffer( sharedData->mIndexBuffer, sharedData->mIndexFormat, 0 );
+        deviceContext->IASetIndexBuffer( sharedData->mIndexBuffer.Get(), sharedData->mIndexFormat, 0 );
     }
     //---------------------------------------------------------------------
     void D3D11RenderSystem::_render( const CbDrawCallIndexed *cmd )
@@ -3788,10 +3684,6 @@ namespace Ogre
         mBoundComputeProgram = NULL;
 
         mBindingType = TextureUnitState::BT_FRAGMENT;
-
-        //sets the modification trackers to true
-        mSamplerStatesChanged = true;
-        mLastTextureUnitState = 0;
 
         mVendorExtension = D3D11VendorExtension::initializeExtension( GPU_VENDOR_COUNT, 0 );
 

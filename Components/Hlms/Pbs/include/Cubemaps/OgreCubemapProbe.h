@@ -34,10 +34,7 @@ THE SOFTWARE.
 #include "OgreIdString.h"
 #include "OgreTextureGpu.h"
 #include "OgreHeaderPrefix.h"
-
-//It's slightly more accurate if we render the cubemaps and generate the cubemaps, then blend.
-//But Ogre doesn't yet support RTT to mipmaps, so we generate the mipmaps after blending.
-#define GENERATE_MIPMAPS_ON_BLEND 1
+#include "Compositor/OgreCompositorChannel.h"
 
 namespace Ogre
 {
@@ -63,7 +60,6 @@ namespace Ogre
         uint16      mCubemapArrayIdx;
         SampleDescription mSampleDescription;
 
-        uint8               mWorkspaceMipmapsExecMask;
         IdString            mWorkspaceDefName;
         CompositorWorkspace *mClearWorkspace;
         CompositorWorkspace *mWorkspace;
@@ -121,6 +117,9 @@ namespace Ogre
         CubemapProbe( ParallaxCorrectedCubemapBase *creator );
         ~CubemapProbe();
 
+        void _releaseManualHardwareResources();
+        void _restoreManualHardwareResources();
+
         /**
         @remarks
             When this CubemapProbe belongs to ParallaxCorrectedCubemapAuto,
@@ -160,8 +159,9 @@ namespace Ogre
             This value allows you to override it with a different workspace definition.
         */
         void initWorkspace( float cameraNear = 0.5f, float cameraFar = 500.0f,
-                            uint8 mipmapsExecutionMask=0x01,
-                            IdString workspaceDefOverride=IdString() );
+                            IdString workspaceDefOverride = IdString(),
+                            const CompositorChannelVec &additionalChannels = CompositorChannelVec(),
+                            uint8 executionMask = 0xFF );
         bool isInitialized(void) const;
 
         /** Sets cubemap probe's parameters.
@@ -227,6 +227,7 @@ namespace Ogre
         const Aabb& getArea(void) const                     { return mArea; }
         const Vector3& getAreaInnerRegion(void) const       { return mAreaInnerRegion; }
         const Matrix3& getOrientation(void) const           { return mOrientation; }
+        const Matrix3& getInvOrientation(void) const        { return mInvOrientation; }
         const Aabb& getProbeShape(void) const               { return mProbeShape; }
 
         CompositorWorkspace *getWorkspace(void) const       { return mWorkspace; }

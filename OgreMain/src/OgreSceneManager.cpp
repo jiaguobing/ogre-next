@@ -99,6 +99,7 @@ mStaticMinDepthLevelDirty( 0 ),
 mStaticEntitiesDirty( true ),
 mPrePassMode( PrePassNone ),
 mSsrTexture( 0 ),
+mRefractionsTexture( 0 ),
 mName(name),
 mRenderQueue( 0 ),
 mForwardPlusSystem( 0 ),
@@ -157,6 +158,8 @@ mGpuParamsDirty((uint16)GPV_ALL)
     for( size_t i=0; i<NUM_SCENE_MEMORY_MANAGER_TYPES; ++i )
         mSceneRoot[i] = 0;
     mSceneDummy = 0;
+
+    memset( mAmbientSphericalHarmonics, 0, sizeof( mAmbientSphericalHarmonics ) );
 
     setAmbientLight( ColourValue::Black, ColourValue::Black, Vector3::UNIT_Y, 1.0f );
 
@@ -1180,6 +1183,12 @@ void SceneManager::_setPrePassMode( PrePassMode mode, const TextureGpuVec &prepa
     mSsrTexture = ssrTexture;
 }
 //-----------------------------------------------------------------------
+void SceneManager::_setRefractions( TextureGpu *depthTextureNoMsaa, TextureGpu *refractionsTexture )
+{
+    mPassDepthTextureNoMsaa = depthTextureNoMsaa;
+    mRefractionsTexture = refractionsTexture;
+}
+//-----------------------------------------------------------------------
 void SceneManager::setDecalsDiffuse( TextureGpu *tex )
 {
     if( tex )
@@ -1435,7 +1444,7 @@ void SceneManager::_renderPhase02(Camera* camera, const Camera *lodCamera,
         }
     } // end lock on scene graph mutex
 
-    mDestRenderSystem->_beginGeometryCount();
+    mDestRenderSystem->_resetMetrics();
 
     // Set initial camera state
     mDestRenderSystem->_setProjectionMatrix( Matrix4::IDENTITY );
@@ -1460,10 +1469,10 @@ void SceneManager::_renderPhase02(Camera* camera, const Camera *lodCamera,
     mDestRenderSystem->setInvertVertexWinding(false);
 
     // Notify camera of vis faces
-    camera->_notifyRenderedFaces(mDestRenderSystem->_getFaceCount());
+    camera->_notifyRenderedFaces( mDestRenderSystem->getMetrics().mFaceCount );
 
     // Notify camera of vis batches
-    camera->_notifyRenderedBatches(mDestRenderSystem->_getBatchCount());
+    camera->_notifyRenderedBatches( mDestRenderSystem->getMetrics().mBatchCount );
 
     Root::getSingleton()._popCurrentSceneManager(this);
 }
@@ -1531,6 +1540,9 @@ void SceneManager::_releaseManualHardwareResources()
         for(MovableObjectVec::iterator i = coll->movableObjects.begin(), i_end = coll->movableObjects.end(); i != i_end; ++i)
             (*i)->_releaseManualHardwareResources();
     }
+
+    if(mForwardPlusSystem)
+        mForwardPlusSystem->_releaseManualHardwareResources();
 }
 //-----------------------------------------------------------------------
 void SceneManager::_restoreManualHardwareResources()
@@ -1545,6 +1557,7 @@ void SceneManager::_restoreManualHardwareResources()
         for(MovableObjectVec::iterator i = coll->movableObjects.begin(), i_end = coll->movableObjects.end(); i != i_end; ++i)
             (*i)->_restoreManualHardwareResources();
     }
+    mStaticEntitiesDirty = true; // mObjectData.mWorldAabb could be corrupted as part of reinitialization
 }
 //-----------------------------------------------------------------------
 void SceneManager::prepareWorldGeometry(const String& filename)
@@ -2857,6 +2870,16 @@ void SceneManager::setAmbientLight( const ColourValue &upperHemisphere,
     mAmbientLightHemisphereDir.normalise();
     mAmbientLight[0].a = envmapScale;
     mEnvFeatures = envFeatures;
+}
+//-----------------------------------------------------------------------
+void SceneManager::setSphericalHarmonics( Vector3 ambientSphericalHarmonics[9] )
+{
+    for( size_t i = 0u; i < 9u; ++i )
+    {
+        mAmbientSphericalHarmonics[i * 3u + 0u] = (float)ambientSphericalHarmonics[i].x;
+        mAmbientSphericalHarmonics[i * 3u + 1u] = (float)ambientSphericalHarmonics[i].y;
+        mAmbientSphericalHarmonics[i * 3u + 2u] = (float)ambientSphericalHarmonics[i].z;
+    }
 }
 //-----------------------------------------------------------------------
 ViewPoint SceneManager::getSuggestedViewpoint(bool random)
@@ -4732,4 +4755,5 @@ inline bool SceneManager::updateWorkerThreadImpl( size_t threadIdx )
 
     return exitThread;
 }
+SceneManagerFactory::~SceneManagerFactory() {}
 }

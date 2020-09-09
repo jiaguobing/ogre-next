@@ -57,7 +57,7 @@ namespace Demo
         Ogre::Vector2 d = Ogre::Vector2( abs(p.x), abs(p.y) ) - halfSize;
         Ogre::Vector2 dCeil( d );
         dCeil.makeCeil( Ogre::Vector2::ZERO );
-        return dCeil.length() + Ogre::min( Ogre::max( d.x, d.y ), 0.0f );
+        return dCeil.length() + std::min( std::max( d.x, d.y ), 0.0f );
     }
     inline float sdAnnularBox( const Ogre::Vector2 &point, const Ogre::Vector2 &center,
                                const Ogre::Vector2 &halfSize, float r )
@@ -179,11 +179,11 @@ namespace Demo
                                             1, 1, true, 1, 1.0f, 1.0f, Ogre::Vector3::UNIT_Y,
                                             Ogre::v1::HardwareBuffer::HBU_STATIC,
                                             Ogre::v1::HardwareBuffer::HBU_STATIC );
-        Ogre::MeshPtr lightPlaneMesh = Ogre::MeshManager::getSingleton().createManual(
-                    "LightPlane", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME );
-        lightPlaneMesh->importV1( lightPlaneMeshV1.get(), true, true, true );
+        Ogre::MeshPtr lightPlaneMesh = Ogre::MeshManager::getSingleton().createByImportingV1(
+                    "LightPlane", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+                    lightPlaneMeshV1.get(), true, true, true );
 
-        Ogre::v1::MeshManager::getSingleton().remove( lightPlaneMeshV1 );
+        lightPlaneMeshV1->unload();
     }
     //-----------------------------------------------------------------------------------
     Ogre::HlmsDatablock* UpdatingDecalsAndAreaLightTexGameState::setupDatablockTextureForLight(
@@ -389,10 +389,9 @@ namespace Demo
                                             Ogre::v1::HardwareBuffer::HBU_STATIC,
                                             Ogre::v1::HardwareBuffer::HBU_STATIC );
 
-        Ogre::MeshPtr planeMesh = Ogre::MeshManager::getSingleton().createManual(
-                    "Plane", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME );
-
-        planeMesh->importV1( planeMeshV1.get(), true, true, true );
+        Ogre::MeshPtr planeMesh = Ogre::MeshManager::getSingleton().createByImportingV1(
+                    "Plane", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+                    planeMeshV1.get(), true, true, true );
 
         {
             Ogre::Item *item = sceneManager->createItem( planeMesh, Ogre::SCENE_DYNAMIC );

@@ -38,8 +38,12 @@ THE SOFTWARE.
 #include "Compositor/Pass/PassQuad/OgreCompositorPassQuadDef.h"
 #include "Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h"
 
+#include "OgreHlmsPbs.h"
+
 #include "OgreRoot.h"
+#include "OgreCamera.h"
 #include "OgreSceneManager.h"
+#include "OgreRenderQueue.h"
 #include "OgreTextureGpuManager.h"
 #include "OgrePixelFormatGpuUtils.h"
 #include "OgreHlmsManager.h"
@@ -57,6 +61,7 @@ THE SOFTWARE.
 
 #include "Vao/OgreConstBufferPacked.h"
 #include "Vao/OgreStagingBuffer.h"
+#include "Vao/OgreVaoManager.h"
 
 namespace Ogre
 {
@@ -170,11 +175,23 @@ namespace Ogre
         hlmsManager->destroySamplerblock( mSamplerblockPoint );
         mSamplerblockPoint = 0;
 
+        _releaseManualHardwareResources();
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemap::_releaseManualHardwareResources()
+    {
         if( mStagingBuffer )
         {
             mStagingBuffer->removeReferenceCount();
             mStagingBuffer = 0;
         }
+
+        ParallaxCorrectedCubemapBase::_releaseManualHardwareResources();
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemap::_restoreManualHardwareResources()
+    {
+        ParallaxCorrectedCubemapBase::_restoreManualHardwareResources();
     }
     //-----------------------------------------------------------------------------------
     void ParallaxCorrectedCubemap::destroyAllProbes(void)
@@ -272,11 +289,7 @@ namespace Ogre
                                "ParallaxCorrectedCubemap Blend Result " +
                                StringConverter::toString( getId() ),
                                GpuPageOutStrategy::Discard,
-                    #if GENERATE_MIPMAPS_ON_BLEND
                                TextureFlags::RenderToTexture | TextureFlags::AllowAutomipmaps,
-                    #else
-                               TextureFlags::RenderToTexture,
-                    #endif
                                TextureTypes::TypeCube );
             mBindTexture->setResolution( maxWidth, maxHeight );
             mBindTexture->setPixelFormat( pixelFormat );
@@ -290,10 +303,15 @@ namespace Ogre
             mRoot->addFrameListener( this );
             CompositorManager2 *compositorManager = mDefaultWorkspaceDef->getCompositorManager();
             compositorManager->addListener( this );
+
+            HlmsManager *hlmsManager = mRoot->getHlmsManager();
+            OGRE_ASSERT_HIGH( dynamic_cast<HlmsPbs *>( hlmsManager->getHlms( HLMS_PBS ) ) );
+            HlmsPbs *hlmsPbs = static_cast<HlmsPbs *>( hlmsManager->getHlms( HLMS_PBS ) );
+            hlmsPbs->_notifyIblSpecMipmap( mBindTexture->getNumMipmaps() );
         }
         else
         {
-            destroyCompositorData();
+            destroyCubemapBlendWorkspace();
 
             CompositorManager2 *compositorManager = mDefaultWorkspaceDef->getCompositorManager();
             compositorManager->removeListener( this );
@@ -307,8 +325,10 @@ namespace Ogre
         return mBlendWorkspace != 0;
     }
     //-----------------------------------------------------------------------------------
-    void ParallaxCorrectedCubemap::createProxyGeometry(void)
+    void ParallaxCorrectedCubemap::loadResource( Resource *resource )
     {
+        Mesh *mesh = static_cast<Mesh*>( resource );
+
         //Create the mesh geometry
         const Vector3 c_vertices[8] =
         {
@@ -339,19 +359,22 @@ namespace Ogre
         IndexBufferPacked *indexBuffer = vaoManager->createIndexBuffer( IndexBufferPacked::IT_16BIT,
                                                                         3 * 2 * 6, BT_IMMUTABLE,
                                                                         (void*)c_indexData, false );
-
         VertexBufferPackedVec vertexBuffers( 1, vertexBuffer );
         VertexArrayObject *vao = vaoManager->createVertexArrayObject( vertexBuffers, indexBuffer,
                                                                       OT_TRIANGLE_LIST );
-        mProxyMesh = MeshManager::getSingleton().createManual(
-                    "AutoGen_ParallaxCorrectedCubemap_" + StringConverter::toString( getId() ) +
-                    "_Proxy", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME );
-        mProxyMesh->_setBounds( Aabb( Vector3::ZERO, Vector3::UNIT_SCALE ) );
-
-        SubMesh *subMesh = mProxyMesh->createSubMesh();
+        SubMesh *subMesh = mesh->createSubMesh();
         for( int i=0; i<NumVertexPass; ++i )
             subMesh->mVao[i].push_back( vao );
         subMesh->mMaterialName = "Cubemap/BlendProjectCubemap0";
+
+        mesh->_setBounds( Aabb( Vector3::ZERO, Vector3::UNIT_SCALE ) );
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemap::createProxyGeometry(void)
+    {
+        mProxyMesh = MeshManager::getSingleton().createManual(
+                    "AutoGen_ParallaxCorrectedCubemap_" + StringConverter::toString( getId() ) +
+                    "_Proxy", ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, this );
 
         RenderQueue *renderQueue = mSceneManager->getRenderQueue();
         renderQueue->setRenderQueueMode( mReservedRqId, RenderQueue::FAST );
@@ -389,11 +412,7 @@ namespace Ogre
             for( uint32 i=0; i<6; ++i )
             {
                 CompositorTargetDef *targetDef = nodeDef->addTargetPass( "BlendedProbeRT", i );
-#if GENERATE_MIPMAPS_ON_BLEND
                 targetDef->setNumPasses( i == 5 ? 2 : 1 );
-#else
-                targetDef->setNumPasses( 1 );
-#endif
                 {
                     {
                         CompositorPassSceneDef *passScene = static_cast<CompositorPassSceneDef*>
@@ -409,12 +428,10 @@ namespace Ogre
                         passScene->mLoadActionColour[0] = LoadAction::Clear;
                         passScene->mClearColour[0]      = ColourValue::Black;
                     }
-#if GENERATE_MIPMAPS_ON_BLEND
                     if( i == 5 )
                     {
                         targetDef->addPass( PASS_MIPMAP );
                     }
-#endif
                 }
             }
 
@@ -437,11 +454,7 @@ namespace Ogre
             for( uint32 i=0; i<6; ++i )
             {
                 CompositorTargetDef *targetDef = nodeDef->addTargetPass( "CopyProbeRT", i );
-#if GENERATE_MIPMAPS_ON_BLEND
                 targetDef->setNumPasses( i == 5 ? 2 : 1 );
-#else
-                targetDef->setNumPasses( 1 );
-#endif
                 {
                     {
                         CompositorPassQuadDef *passQuad = static_cast<CompositorPassQuadDef*>
@@ -454,12 +467,10 @@ namespace Ogre
                         passQuad->mLoadActionColour[0]  = LoadAction::Clear;
                         passQuad->mClearColour[0]       = ColourValue::Black;
                     }
-#if GENERATE_MIPMAPS_ON_BLEND
                     if( i == 5 )
                     {
                         targetDef->addPass( PASS_MIPMAP );
                     }
-#endif
                 }
             }
 
@@ -514,7 +525,7 @@ namespace Ogre
                                                            mBlendProxyCamera,
                                                            workspaceName,
                                                            false );
-        mBlendWorkspace->setListener( this );
+        mBlendWorkspace->addListener( this );
 
         workspaceName = "AutoGen_ParallaxCorrectedCubemapCopy_Workspace";
         mCopyWorkspace = compositorManager->addWorkspace( mSceneManager,
@@ -522,13 +533,18 @@ namespace Ogre
                                                           mBlendProxyCamera,
                                                           workspaceName,
                                                           false );
-        mCopyWorkspace->setListener( this );
+        mCopyWorkspace->addListener( this );
     }
     //-----------------------------------------------------------------------------------
-    void ParallaxCorrectedCubemap::destroyCompositorData(void)
+    void ParallaxCorrectedCubemap::destroyCubemapBlendWorkspace(void)
     {
-        mBlendWorkspace->setListener( 0 );
         CompositorManager2 *compositorManager = mDefaultWorkspaceDef->getCompositorManager();
+
+        mCopyWorkspace->removeListener( this );
+        compositorManager->removeWorkspace( mCopyWorkspace );
+        mCopyWorkspace = 0;
+
+        mBlendWorkspace->removeListener( this );
         compositorManager->removeWorkspace( mBlendWorkspace );
         mBlendWorkspace = 0;
 
@@ -681,7 +697,7 @@ namespace Ogre
                 {
                     Vector4 transformedVert( probe->mOrientation * corners[i] );
                     transformedVert = viewProjMatrix * transformedVert;
-                    transformedVert.w = Ogre::max( transformedVert.w, Real(1e-6f) );
+                    transformedVert.w = std::max( transformedVert.w, Real(1e-6f) );
                     transformedVert /= transformedVert.w;
 
                     Vector3 psVertex( transformedVert.ptr() );
@@ -833,8 +849,8 @@ namespace Ogre
             mProxyItems[i]->setVisible( i < mNumCollectedProbes );
 
             //Divide by maxComponent to get better precision in the GPU.
-            const Real maxComponent = Ogre::max( mCollectedProbes[i]->mProbeShape.mHalfSize.x,
-                                                 Ogre::max(
+            const Real maxComponent = std::max( mCollectedProbes[i]->mProbeShape.mHalfSize.x,
+                                                 std::max(
                                                      mCollectedProbes[i]->mProbeShape.mHalfSize.y,
                                                      mCollectedProbes[i]->mProbeShape.mHalfSize.z ) );
             Matrix4 worldScaledMatrix;
@@ -1084,12 +1100,13 @@ namespace Ogre
                 fillConstBufferData( mFinalProbe, viewMatrix, invViewMat3, passBufferPtr );
     }
     //-----------------------------------------------------------------------------------
-    TextureGpu* ParallaxCorrectedCubemap::findTmpRtt( const TextureGpu *baseParams )
+    TextureGpu *ParallaxCorrectedCubemap::findRtt( const TextureGpu *baseParams, TempRttVec &container,
+                                                   uint32 textureFlags, bool fullMipmaps )
     {
         TextureGpu *retVal = 0;
 
-        TempRttVec::iterator itor = mTmpRtt.begin();
-        TempRttVec::iterator end  = mTmpRtt.end();
+        TempRttVec::iterator itor = container.begin();
+        TempRttVec::iterator end = container.end();
 
         while( itor != end )
         {
@@ -1107,34 +1124,37 @@ namespace Ogre
 
         if( !retVal )
         {
+            uint8 numMipmaps = PixelFormatGpuUtils::getMaxMipmapCount( baseParams->getWidth(),
+                                                                       baseParams->getHeight() );
+            if( !fullMipmaps )
+                numMipmaps = std::max<uint8>( baseParams->getNumMipmaps(), 5u ) - 4u;
+
             TempRtt tmpRtt;
             TextureGpuManager *textureGpuManager =
-                    mSceneManager->getDestinationRenderSystem()->getTextureGpuManager();
+                mSceneManager->getDestinationRenderSystem()->getTextureGpuManager();
             retVal = textureGpuManager->createTexture(
-                         "ParallaxCorrectedCubemap Temp RTT " + StringConverter::toString( getId() ),
-                         GpuPageOutStrategy::Discard,
-                         TextureFlags::RenderToTexture | TextureFlags::AllowAutomipmaps,
-                         TextureTypes::TypeCube );
+                "ParallaxCorrectedCubemap Temp RTT " + StringConverter::toString( getId() ),
+                GpuPageOutStrategy::Discard, textureFlags, TextureTypes::TypeCube );
             retVal->setResolution( baseParams->getWidth(), baseParams->getHeight() );
             retVal->setPixelFormat( baseParams->getPixelFormat() );
-            retVal->setNumMipmaps( baseParams->getNumMipmaps() );
+            retVal->setNumMipmaps( numMipmaps );
             retVal->setSampleDescription( baseParams->getSampleDescription() );
             retVal->_transitionTo( GpuResidency::Resident, (uint8*)0 );
 
             tmpRtt.texture = retVal;
             tmpRtt.refCount = 1;
-            mTmpRtt.push_back( tmpRtt );
+            container.push_back( tmpRtt );
         }
 
         return retVal;
     }
     //-----------------------------------------------------------------------------------
-    void ParallaxCorrectedCubemap::releaseTmpRtt( const TextureGpu *tmpRtt )
+    void ParallaxCorrectedCubemap::releaseRtt( const TextureGpu *rtt, TempRttVec &container )
     {
-        TempRttVec::iterator itor = mTmpRtt.begin();
-        TempRttVec::iterator end  = mTmpRtt.end();
+        TempRttVec::iterator itor = container.begin();
+        TempRttVec::iterator end  = container.end();
 
-        while( itor != end && itor->texture != tmpRtt )
+        while( itor != end && itor->texture != rtt )
             ++itor;
 
         if( itor != end )
@@ -1145,9 +1165,31 @@ namespace Ogre
                 TextureGpuManager *textureGpuManager =
                         mSceneManager->getDestinationRenderSystem()->getTextureGpuManager();
                 textureGpuManager->destroyTexture( itor->texture );
-                efficientVectorRemove( mTmpRtt, itor );
+                efficientVectorRemove( container, itor );
             }
         }
+    }
+    //-----------------------------------------------------------------------------------
+    TextureGpu* ParallaxCorrectedCubemap::findTmpRtt( const TextureGpu *baseParams )
+    {
+        return findRtt( baseParams, mTmpRtt,
+                        TextureFlags::RenderToTexture | TextureFlags::AllowAutomipmaps, true );
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemap::releaseTmpRtt( const TextureGpu *tmpRtt )
+    {
+        releaseRtt( tmpRtt, mTmpRtt );
+    }
+    //-----------------------------------------------------------------------------------
+    TextureGpu* ParallaxCorrectedCubemap::findIbl( const TextureGpu *baseParams )
+    {
+        return findRtt( baseParams, mIblRtt, getIblTargetTextureFlags( baseParams->getPixelFormat() ),
+                        false );
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemap::releaseIbl( const TextureGpu *tmpRtt )
+    {
+        releaseRtt( tmpRtt, mIblRtt );
     }
     //-----------------------------------------------------------------------------------
     void ParallaxCorrectedCubemap::_addManuallyActiveProbe( CubemapProbe *probe )

@@ -120,7 +120,7 @@ namespace Ogre
                 break;
             case TextureTypes::TypeCubeArray:
                 OCGE( glTexStorage3D( GL_TEXTURE_CUBE_MAP_ARRAY, GLsizei(mNumMipmaps), format,
-                                      GLsizei(mWidth), GLsizei(mHeight), GLsizei(mDepthOrSlices * 6u) ) );
+                                      GLsizei(mWidth), GLsizei(mHeight), GLsizei(mDepthOrSlices) ) );
                 break;
             case TextureTypes::Type3D:
                 OCGE( glTexStorage3D( GL_TEXTURE_3D, GLsizei(mNumMipmaps), format,
@@ -309,11 +309,17 @@ namespace Ogre
     void GL3PlusTextureGpu::bindTextureToFrameBuffer( GLenum target, uint8 mipLevel,
                                                       uint32 depthOrSlice )
     {
-        bindTextureToFrameBuffer( target, mFinalTextureName, mipLevel, depthOrSlice );
+        GLuint textureName = mFinalTextureName;
+        bool bindMsaaColourRenderbuffer = isMultisample() && ( !hasMsaaExplicitResolves() || !isTexture() );
+        if( bindMsaaColourRenderbuffer )
+            textureName = mMsaaFramebufferName;
+        bindTextureToFrameBuffer( target, textureName, mipLevel, depthOrSlice,
+                                  bindMsaaColourRenderbuffer );
     }
     //-----------------------------------------------------------------------------------
-    void GL3PlusTextureGpu::bindTextureToFrameBuffer( GLenum target, GLuint textureName,
-                                                      uint8 mipLevel, uint32 depthOrSlice )
+    void GL3PlusTextureGpu::bindTextureToFrameBuffer( GLenum target, GLuint textureName, uint8 mipLevel,
+                                                      uint32 depthOrSlice,
+                                                      bool bindMsaaColourRenderbuffer )
     {
         assert( !isRenderWindowSpecific() );
 
@@ -342,10 +348,10 @@ namespace Ogre
         }
         else
         {
-            if( isMultisample() && (!hasMsaaExplicitResolves() || !isTexture()) )
+            if( bindMsaaColourRenderbuffer )
             {
                 OCGE( glFramebufferRenderbuffer( target, GL_COLOR_ATTACHMENT0,
-                                                 GL_RENDERBUFFER, mMsaaFramebufferName ) );
+                                                 GL_RENDERBUFFER, textureName ) );
             }
             else
             {
@@ -367,7 +373,7 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     void GL3PlusTextureGpu::copyViaFramebuffer( TextureGpu *dst, const TextureBox &dstBox,
                                                 uint8 dstMipLevel, const TextureBox &srcBox,
-                                                uint8 srcMipLevel )
+                                                uint8 srcMipLevel, bool keepResolvedTexSynced )
     {
         RenderSystem *renderSystem = mTextureManager->getRenderSystem();
         renderSystem->endRenderPassDescriptor();
@@ -575,10 +581,39 @@ namespace Ogre
             }
             OCGE( glBindFramebuffer( GL_DRAW_FRAMEBUFFER, 0 ) );
         }
+
+        if( dstGl->isMultisample() && !dstGl->hasMsaaExplicitResolves() && keepResolvedTexSynced )
+        {
+            OCGE( glBindFramebuffer( GL_READ_FRAMEBUFFER, textureManagerGl->getTemporaryFbo( 0 ) ) );
+            OCGE( glBindFramebuffer( GL_DRAW_FRAMEBUFFER, textureManagerGl->getTemporaryFbo( 1 ) ) );
+            OCGE( glViewport( 0, 0, srcBox.width, srcBox.height ) );
+
+            OCGE( glReadBuffer( GL_COLOR_ATTACHMENT0 ) );
+            OCGE( glDrawBuffer( GL_COLOR_ATTACHMENT0 ) );
+
+            for( size_t i = 0; i < dstBox.numSlices; ++i )
+            {
+                dstGl->bindTextureToFrameBuffer( GL_READ_FRAMEBUFFER, dstGl->mMsaaFramebufferName, 0,
+                                                 dstBox.getZOrSlice() + i, true );
+                dstGl->bindTextureToFrameBuffer( GL_DRAW_FRAMEBUFFER, dstGl->mFinalTextureName,
+                                                 dstMipLevel, dstBox.getZOrSlice() + i, false );
+
+                OCGE( glBlitFramebuffer( 0, 0, srcBox.width, srcBox.height, 0, 0, srcBox.width,
+                                         srcBox.height, GL_COLOR_BUFFER_BIT, GL_NEAREST ) );
+            }
+
+            OCGE( glFramebufferRenderbuffer( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
+                                             0 ) );
+            OCGE( glFramebufferRenderbuffer( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
+                                             0 ) );
+            OCGE( glBindFramebuffer( GL_READ_FRAMEBUFFER, 0 ) );
+            OCGE( glBindFramebuffer( GL_DRAW_FRAMEBUFFER, 0 ) );
+        }
     }
     //-----------------------------------------------------------------------------------
     void GL3PlusTextureGpu::copyTo( TextureGpu *dst, const TextureBox &dstBox, uint8 dstMipLevel,
-                                    const TextureBox &srcBox, uint8 srcMipLevel )
+                                    const TextureBox &srcBox, uint8 srcMipLevel,
+                                    bool keepResolvedTexSynced )
     {
         TextureGpu::copyTo( dst, dstBox, dstMipLevel, srcBox, srcMipLevel );
 
@@ -589,26 +624,10 @@ namespace Ogre
                 static_cast<GL3PlusTextureGpuManager*>( mTextureManager );
         const GL3PlusSupport &support = textureManagerGl->getGlSupport();
 
-        if( !this->isRenderWindowSpecific() && !dst->isRenderWindowSpecific() )
+        if( !this->isRenderWindowSpecific() && !dst->isRenderWindowSpecific() &&
+            ( !this->isMultisample() || !dst->isMultisample() ||
+              ( this->hasMsaaExplicitResolves() && dst->hasMsaaExplicitResolves() ) ) )
         {
-            GLuint srcTextureName = this->mFinalTextureName;
-            GLuint dstTextureName = dstGl->mFinalTextureName;
-
-            //Source has explicit resolves. If destination doesn't,
-            //we must copy to its internal MSAA surface.
-            if( this->isMultisample() && this->hasMsaaExplicitResolves() )
-            {
-                if( !dstGl->hasMsaaExplicitResolves() )
-                    dstTextureName = dstGl->mMsaaFramebufferName;
-            }
-            //Destination has explicit resolves. If source doesn't,
-            //we must copy from its internal MSAA surface.
-            if( dstGl->isMultisample() && dstGl->hasMsaaExplicitResolves() )
-            {
-                if( !this->hasMsaaExplicitResolves() )
-                    srcTextureName = this->mMsaaFramebufferName;
-            }
-
             if( support.hasMinGLVersion( 4, 3 ) || support.checkExtension( "GL_ARB_copy_image" ) )
             {
                 OCGE( glCopyImageSubData( this->mFinalTextureName, this->mGlTextureTarget,
@@ -654,40 +673,11 @@ namespace Ogre
                 TODO_use_StagingTexture_with_GPU_GPU_visibility;
                 OGRE_EXCEPT( Exception::ERR_NOT_IMPLEMENTED, "", "GL3PlusTextureGpu::copyTo" );
             }
-
-            //Must keep the resolved texture up to date.
-            if( dstGl->isMultisample() && !dstGl->hasMsaaExplicitResolves() )
-            {
-                OCGE( glBindFramebuffer( GL_READ_FRAMEBUFFER, textureManagerGl->getTemporaryFbo(0) ) );
-                OCGE( glBindFramebuffer( GL_DRAW_FRAMEBUFFER, textureManagerGl->getTemporaryFbo(1) ) );
-                OCGE( glViewport( 0, 0, srcBox.width, srcBox.height ) );
-
-                OCGE( glReadBuffer( GL_COLOR_ATTACHMENT0 ) );
-                OCGE( glDrawBuffer( GL_COLOR_ATTACHMENT0 ) );
-
-                for( size_t i=0; i<dstBox.numSlices; ++i )
-                {
-                    dstGl->bindTextureToFrameBuffer( GL_READ_FRAMEBUFFER, dstGl->mMsaaFramebufferName,
-                                                     0, dstBox.getZOrSlice() + i );
-                    dstGl->bindTextureToFrameBuffer( GL_DRAW_FRAMEBUFFER, dstGl->mFinalTextureName,
-                                                     dstMipLevel, dstBox.getZOrSlice() + i );
-
-                    OCGE( glBlitFramebuffer( 0, 0, srcBox.width, srcBox.height,
-                                             0, 0, srcBox.width, srcBox.height,
-                                             GL_COLOR_BUFFER_BIT, GL_NEAREST ) );
-                }
-
-                OCGE( glFramebufferRenderbuffer( GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                                 GL_RENDERBUFFER, 0 ) );
-                OCGE( glFramebufferRenderbuffer( GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                                 GL_RENDERBUFFER, 0 ) );
-                OCGE( glBindFramebuffer( GL_READ_FRAMEBUFFER, 0 ) );
-                OCGE( glBindFramebuffer( GL_DRAW_FRAMEBUFFER, 0 ) );
-            }
         }
         else
         {
-            this->copyViaFramebuffer( dst, dstBox, dstMipLevel, srcBox, srcMipLevel );
+            this->copyViaFramebuffer( dst, dstBox, dstMipLevel, srcBox, srcMipLevel,
+                                      keepResolvedTexSynced );
         }
 
         //Do not perform the sync if notifyDataIsReady hasn't been called yet (i.e. we're
@@ -754,6 +744,11 @@ namespace Ogre
             mDepthBufferPoolId = 0;
     }
     //-----------------------------------------------------------------------------------
+    GL3PlusTextureGpuRenderTarget::~GL3PlusTextureGpuRenderTarget()
+    {
+        destroyInternalResourcesImpl();
+    }
+    //-----------------------------------------------------------------------------------
     void GL3PlusTextureGpuRenderTarget::createInternalResourcesImpl(void)
     {
         if( mPixelFormat == PFG_NULL )
@@ -807,6 +802,8 @@ namespace Ogre
             uint16 depthBufferPoolId, bool preferDepthTexture, PixelFormatGpu desiredDepthBufferFormat )
     {
         assert( isRenderToTexture() );
+        OGRE_ASSERT_MEDIUM( mSourceType != TextureSourceType::SharedDepthBuffer &&
+                            "Cannot call _setDepthBufferDefaults on a shared depth buffer!" );
         mDepthBufferPoolId          = depthBufferPoolId;
         mPreferDepthTexture         = preferDepthTexture;
         mDesiredDepthBufferFormat   = desiredDepthBufferFormat;

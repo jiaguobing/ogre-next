@@ -104,7 +104,7 @@ namespace Demo
         mWorkspaceListener = new PlanarReflectionsWorkspaceListener( mPlanarReflections );
         {
             Ogre::CompositorWorkspace *workspace = mGraphicsSystem->getCompositorWorkspace();
-            workspace->setListener( mWorkspaceListener );
+            workspace->addListener( mWorkspaceListener );
         }
 
         //The perfect mirror doesn't need mipmaps.
@@ -128,10 +128,9 @@ namespace Demo
                     1, 1, true, 1, 1.0f, 1.0f, Ogre::Vector3::UNIT_Y,
                     Ogre::v1::HardwareBuffer::HBU_STATIC,
                     Ogre::v1::HardwareBuffer::HBU_STATIC );
-        Ogre::MeshPtr planeMesh = Ogre::MeshManager::getSingleton().createManual(
-                    "Plane Mirror Unlit", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME );
-
-        planeMesh->importV1( planeMeshV1.get(), true, true, true );
+        Ogre::MeshPtr planeMesh = Ogre::MeshManager::getSingleton().createByImportingV1(
+                    "Plane Mirror Unlit", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+                    planeMeshV1.get(), true, true, true );
 
         //---------------------------------------------------------------------
         //Setup mirror for Unlit.
@@ -207,10 +206,9 @@ namespace Demo
                                             Ogre::v1::HardwareBuffer::HBU_STATIC,
                                             Ogre::v1::HardwareBuffer::HBU_STATIC );
 
-        Ogre::MeshPtr planeMesh = Ogre::MeshManager::getSingleton().createManual(
-                    "Plane", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME );
-
-        planeMesh->importV1( planeMeshV1.get(), true, true, true );
+        Ogre::MeshPtr planeMesh = Ogre::MeshManager::getSingleton().createByImportingV1(
+                    "Plane", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+                    planeMeshV1.get(), true, true, true );
 
         Ogre::Item *mainPlane = 0;
 
@@ -298,7 +296,7 @@ namespace Demo
     void PlanarReflectionsGameState::destroyScene(void)
     {
         Ogre::CompositorWorkspace *workspace = mGraphicsSystem->getCompositorWorkspace();
-        workspace->setListener( (Ogre::CompositorWorkspaceListener*)0 );
+        workspace->removeListener( mWorkspaceListener );
         delete mWorkspaceListener;
         mWorkspaceListener = 0;
         delete mPlanarReflections;

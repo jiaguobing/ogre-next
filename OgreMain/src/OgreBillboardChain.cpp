@@ -41,6 +41,7 @@ THE SOFTWARE.
 #include "OgreViewport.h"
 #include "OgreHlmsManager.h"
 #include "OgreHlms.h"
+#include "OgreRenderOperation.h"
 
 #include <limits>
 
@@ -466,7 +467,7 @@ namespace v1 {
             else
             {
                 mRadius = Math::Sqrt(
-                    max( mAABB.getMinimum().squaredLength(),
+                    std::max( mAABB.getMinimum().squaredLength(),
                         mAABB.getMaximum().squaredLength() ) );
             }
 
@@ -486,7 +487,7 @@ namespace v1 {
 
         HardwareVertexBufferSharedPtr pBuffer =
             mVertexData->vertexBufferBinding->getBuffer(0);
-        void* pBufferStart = pBuffer->lock(HardwareBuffer::HBL_DISCARD);
+        HardwareBufferLockGuard vertexLock(pBuffer, HardwareBuffer::HBL_DISCARD);
 
         const Vector3& camPos = cam->getDerivedPosition();
         Vector3 eyePos = mParentNode->convertWorldToLocalPosition(camPos);
@@ -513,7 +514,7 @@ namespace v1 {
 
                     // Determine base pointer to vertex #1
                     void* pBase = static_cast<void*>(
-                        static_cast<char*>(pBufferStart) +
+                        static_cast<char*>(vertexLock.pData) +
                             pBuffer->getVertexSize() * baseIdx);
 
                     // Get index of next item
@@ -624,12 +625,8 @@ namespace v1 {
 
         } // each segment
 
-
-
-        pBuffer->unlock();
         mVertexCameraUsed = cam;
         mVertexContentDirty = false;
-
     }
     //-----------------------------------------------------------------------
     void BillboardChain::updateIndexBuffer(void)
@@ -638,9 +635,8 @@ namespace v1 {
         setupBuffers();
         if (mIndexContentDirty)
         {
-
-            uint16* pShort = static_cast<uint16*>(
-                mIndexData->indexBuffer->lock(HardwareBuffer::HBL_DISCARD));
+            HardwareBufferLockGuard indexLock(mIndexData->indexBuffer, HardwareBuffer::HBL_DISCARD);
+            uint16* pShort = static_cast<uint16*>(indexLock.pData);
             mIndexData->indexCount = 0;
             // indexes
             for (ChainSegmentList::iterator segi = mChainSegmentList.begin();
@@ -683,7 +679,6 @@ namespace v1 {
                 }
 
             }
-            mIndexData->indexBuffer->unlock();
 
             mIndexContentDirty = false;
         }

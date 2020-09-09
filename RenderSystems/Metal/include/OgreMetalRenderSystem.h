@@ -64,16 +64,12 @@ namespace Ogre
 
             bool operator < ( const CachedDepthStencilState &other ) const
             {
-                if(   this->depthWrite < other.depthWrite  ) return true;
-                if( !(this->depthWrite < other.depthWrite) ) return false;
+                if( this->depthWrite != other.depthWrite )
+                    return this->depthWrite < other.depthWrite;
+                if( this->depthFunc != other.depthFunc )
+                    return this->depthFunc < other.depthFunc;
 
-                if(   this->depthFunc < other.depthFunc  ) return true;
-                if( !(this->depthFunc < other.depthFunc) ) return false;
-
-                if(   this->stencilParams < other.stencilParams  ) return true;
-                //if( !(this->stencilParams < other.stencilParams) ) return false;
-
-                return false;
+                return this->stencilParams < other.stencilParams;
             }
 
             bool operator != ( const CachedDepthStencilState &other ) const
@@ -215,8 +211,9 @@ namespace Ogre
         inline void endRenderPassDescriptor( bool isInterruptingRender );
         virtual void endRenderPassDescriptor(void);
     protected:
-        virtual TextureGpu* createDepthBufferFor( TextureGpu *colourTexture, bool preferDepthTexture,
-                                                  PixelFormatGpu depthBufferFormat );
+        virtual TextureGpu *createDepthBufferFor( TextureGpu *colourTexture, bool preferDepthTexture,
+                                                  PixelFormatGpu depthBufferFormat, uint16 poolId );
+
     public:
         virtual void _setTextureCoordCalculation(size_t unit, TexCoordCalcMethod m,
                                                  const Frustum* frustum = 0);
@@ -246,7 +243,8 @@ namespace Ogre
     protected:
         template <typename TDescriptorSetTexture,
                   typename TTexSlot,
-                  typename TBufferPacked>
+                  typename TBufferPacked,
+                  bool isUav>
         void _descriptorSetTextureCreated( TDescriptorSetTexture *newSet,
                                            const FastArray<TTexSlot> &texContainer,
                                            uint16 *shaderTypeTexCount );
@@ -294,6 +292,9 @@ namespace Ogre
         virtual void registerThread();
         virtual void unregisterThread();
         virtual unsigned int getDisplayMonitorCount() const     { return 1; }
+
+        virtual SampleDescription validateSampleDescription( const SampleDescription &sampleDesc,
+                                                             PixelFormatGpu format );
 
         virtual const PixelFormatToShaderType* getPixelFormatToShaderType(void) const;
 

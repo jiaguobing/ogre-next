@@ -48,6 +48,9 @@ namespace Ogre
         ManualObject( IdType id, ObjectMemoryManager *objectMemoryManager, SceneManager *manager );
         virtual ~ManualObject();
 
+        /** @copydoc MovableObject::_releaseManualHardwareResources */
+        void _releaseManualHardwareResources() { clear(); }
+
         /** Completely clear the contents of the object.
         @remarks
             Clearing the contents of this object and rebuilding from scratch
@@ -236,6 +239,24 @@ namespace Ogre
         */
         void setDatablock(size_t subIndex, const String& name);
 
+        /** Convert this object to a Mesh. 
+        @remarks
+            After you've finished building this object, you may convert it to 
+            a Mesh if you want in order to be able to create many instances of
+            it in the world (via Item). This is optional, since this instance
+            can be directly attached to a SceneNode itself, but of course only
+            one instance of it can exist that way. 
+        @note Only objects which use indexed geometry may be converted to a mesh.
+        @param meshName The name to give the mesh
+        @param groupName The resource group to create the mesh in
+        @param buildShadowMapBuffers
+            True to create an optimized copy of the vertex buffers for efficient
+            shadow mapping.
+        */
+        virtual_l1 MeshPtr convertToMesh(const String& meshName, 
+            const String& groupName = ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+            bool buildShadowMapBuffers = true );
+
         /** Gets a pointer to a ManualObjectSection, i.e. a part of a ManualObject.
         */
         ManualObjectSection* getSection(unsigned int index) const;
@@ -279,6 +300,7 @@ namespace Ogre
             VertexElement2Vec mVertexElements;
             bool m32BitIndices;
             Ogre::String mName;
+            Ogre::String mDatablockName;
 
             void clear();
 

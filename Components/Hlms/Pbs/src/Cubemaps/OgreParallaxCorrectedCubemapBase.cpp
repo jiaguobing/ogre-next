@@ -40,6 +40,7 @@ THE SOFTWARE.
 #include "Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h"
 
 #include "OgreRoot.h"
+#include "OgreCamera.h"
 #include "OgreSceneManager.h"
 #include "OgreTextureGpuManager.h"
 #include "OgrePixelFormatGpuUtils.h"
@@ -91,15 +92,58 @@ namespace Ogre
             depthCompressor->load();
             mPccCompressorPass = depthCompressor->getTechnique( 0 )->getPass( 0 );
         }
+
+        RenderSystem::addSharedListener( this );
     }
     //-----------------------------------------------------------------------------------
     ParallaxCorrectedCubemapBase::~ParallaxCorrectedCubemapBase()
     {
+        RenderSystem::removeSharedListener( this );
+
         destroyAllProbes();
 
         HlmsManager *hlmsManager = mRoot->getHlmsManager();
         hlmsManager->destroySamplerblock( mSamplerblockTrilinear );
         mSamplerblockTrilinear = 0;
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemapBase::_releaseManualHardwareResources()
+    {
+        for( CubemapProbeVec::iterator it = mProbes.begin(), end = mProbes.end(); it != end; ++it )
+            (*it)->_releaseManualHardwareResources();
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemapBase::_restoreManualHardwareResources()
+    {
+        for( CubemapProbeVec::iterator it = mProbes.begin(), end = mProbes.end(); it != end; ++it )
+            (*it)->_restoreManualHardwareResources();
+
+        updateAllDirtyProbes();
+    }
+    //-----------------------------------------------------------------------------------
+    uint32 ParallaxCorrectedCubemapBase::getIblTargetTextureFlags( PixelFormatGpu pixelFormat ) const
+    {
+        const RenderSystemCapabilities *caps =
+            mSceneManager->getDestinationRenderSystem()->getCapabilities();
+        uint32 textureFlags;
+        if( caps->hasCapability( RSC_UAV ) )
+        {
+            textureFlags = TextureFlags::Uav;
+            if( PixelFormatGpuUtils::isSRgb( pixelFormat ) )
+                textureFlags |= TextureFlags::Reinterpretable;
+        }
+        else
+        {
+            textureFlags = TextureFlags::RenderToTexture | TextureFlags::AllowAutomipmaps;
+        }
+        return textureFlags;
+    }
+    //-----------------------------------------------------------------------------------
+    uint8 ParallaxCorrectedCubemapBase::getIblNumMipmaps( uint32 width, uint32 height )
+    {
+        uint8 numMipmaps = PixelFormatGpuUtils::getMaxMipmapCount( width, height );
+        numMipmaps = std::max<uint8>( numMipmaps, 5u ) - 4u;
+        return numMipmaps;
     }
     //-----------------------------------------------------------------------------------
     CubemapProbe* ParallaxCorrectedCubemapBase::createProbe(void)
@@ -228,6 +272,16 @@ namespace Ogre
         OGRE_EXCEPT( Exception::ERR_INVALID_CALL, "", "" );
     }
     //-----------------------------------------------------------------------------------
+    TextureGpu *ParallaxCorrectedCubemapBase::findIbl( const TextureGpu *baseParams )
+    {
+        OGRE_EXCEPT( Exception::ERR_INVALID_CALL, "", "" );
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemapBase::releaseIbl( const TextureGpu *ibl )
+    {
+        OGRE_EXCEPT( Exception::ERR_INVALID_CALL, "", "" );
+    }
+    //-----------------------------------------------------------------------------------
     void ParallaxCorrectedCubemapBase::_copyRenderTargetToCubemap( uint32 cubemapArrayIdx )
     {
     }
@@ -298,5 +352,14 @@ namespace Ogre
             psParams->setNamedConstant( "cameraPosLS", cameraPosLS );
             psParams->setNamedConstant( "viewSpaceToProbeLocalSpace", viewSpaceToProbeLocalSpace );
         }
+    }
+    //-----------------------------------------------------------------------------------
+    void ParallaxCorrectedCubemapBase::eventOccurred( const String &eventName,
+                                                  const NameValuePairList *parameters )
+    {
+        if( eventName == "DeviceLost" )
+            _releaseManualHardwareResources();
+        else if( eventName == "DeviceRestored" )
+            _restoreManualHardwareResources();
     }
 }

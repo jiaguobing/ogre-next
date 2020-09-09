@@ -35,6 +35,8 @@
 
 #include "OgreLogManager.h"
 
+#include <fstream>
+
 #if OGRE_USE_SDL2
     #include <SDL_syswm.h>
 #endif
@@ -51,6 +53,7 @@
 namespace Demo
 {
     GraphicsSystem::GraphicsSystem( GameState *gameState,
+                                    Ogre::String resourcePath ,
                                     Ogre::ColourValue backgroundColour ) :
         BaseSystem( gameState ),
         mLogicSystem( 0 ),
@@ -64,6 +67,7 @@ namespace Demo
         mCamera( 0 ),
         mWorkspace( 0 ),
         mPluginsFolder( "./" ),
+        mResourcePath( resourcePath ),
         mOverlaySystem( 0 ),
         mAccumTimeSinceLastLogicFrame( 0 ),
         mCurrentTransformIdx( 0 ),
@@ -144,14 +148,17 @@ namespace Demo
 
         mStaticPluginLoader.install( mRoot );
 
-        // enable sRGB Gamma Conversion mode by default for all renderers, but still allow to override it via config dialog
-        Ogre::RenderSystemList::const_iterator pRend;
-        for (pRend = mRoot->getAvailableRenderers().begin(); pRend != mRoot->getAvailableRenderers().end(); ++pRend)
-        {
-            Ogre::RenderSystem* rs = *pRend;
-            rs->setConfigOption("sRGB Gamma Conversion", "Yes");
-        }
+        // enable sRGB Gamma Conversion mode by default for all renderers,
+        // but still allow to override it via config dialog
+        Ogre::RenderSystemList::const_iterator itor = mRoot->getAvailableRenderers().begin();
+        Ogre::RenderSystemList::const_iterator endt = mRoot->getAvailableRenderers().end();
 
+        while( itor != endt )
+        {
+            Ogre::RenderSystem *rs = *itor;
+            rs->setConfigOption( "sRGB Gamma Conversion", "Yes" );
+            ++itor;
+        }
 
         if( mAlwaysAskForConfig || !mRoot->restoreConfig() )
         {
@@ -772,6 +779,23 @@ namespace Demo
 
         // Initialise, parse scripts etc
         Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups( true );
+
+        // Initialize resources for LTC area lights and accurate specular reflections (IBL)
+        Ogre::Hlms *hlms = mRoot->getHlmsManager()->getHlms( Ogre::HLMS_PBS );
+        OGRE_ASSERT_HIGH( dynamic_cast<Ogre::HlmsPbs*>( hlms ) );
+        Ogre::HlmsPbs *hlmsPbs = static_cast<Ogre::HlmsPbs*>( hlms );
+        try
+        {
+            hlmsPbs->loadLtcMatrix();
+        }
+        catch( Ogre::FileNotFoundException &e )
+        {
+            Ogre::LogManager::getSingleton().logMessage( e.getFullDescription(), Ogre::LML_CRITICAL );
+            Ogre::LogManager::getSingleton().logMessage(
+                "WARNING: LTC matrix textures could not be loaded. Accurate specular IBL reflections "
+                "and LTC area lights won't be available or may not function properly!",
+                Ogre::LML_CRITICAL );
+        }
     }
     //-----------------------------------------------------------------------------------
     void GraphicsSystem::chooseSceneManager(void)
@@ -828,6 +852,11 @@ namespace Demo
     //-----------------------------------------------------------------------------------
     void GraphicsSystem::initMiscParamsListener( Ogre::NameValuePairList &params )
     {
+    }
+    //-----------------------------------------------------------------------------------
+    void GraphicsSystem::setAlwaysAskForConfig( bool alwaysAskForConfig )
+    {
+        mAlwaysAskForConfig = alwaysAskForConfig;
     }
     //-----------------------------------------------------------------------------------
     void GraphicsSystem::stopCompositor(void)
@@ -967,8 +996,8 @@ namespace Demo
                                           gEnt->mTransform[currIdx]->vScale, mThreadWeight );
             gEnt->mSceneNode->setScale( interpVec );
 
-            Ogre::Quaternion interpQ = Ogre::Math::lerp( gEnt->mTransform[prevIdx]->qRot,
-                                                         gEnt->mTransform[currIdx]->qRot, mThreadWeight );
+            Ogre::Quaternion interpQ = Ogre::Quaternion::nlerp(
+                mThreadWeight, gEnt->mTransform[prevIdx]->qRot, gEnt->mTransform[currIdx]->qRot, true );
             gEnt->mSceneNode->setOrientation( interpQ );
 
             ++itor;

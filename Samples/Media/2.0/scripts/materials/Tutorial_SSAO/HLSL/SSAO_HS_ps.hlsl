@@ -5,10 +5,11 @@ struct PS_INPUT
 };
 
 Texture2D<float> depthTexture	: register(t0);
-Texture2D<float3> noiseTexture  : register(t1);
+Texture2D<float3> gBuf_normals  : register(t1);
+Texture2D<float3> noiseTexture  : register(t2);
 
 SamplerState samplerState0		: register(s0);
-SamplerState samplerState1		: register(s1);
+SamplerState samplerState2		: register(s2);
 
 uniform float2 projectionParams;
 uniform float invKernelSize;
@@ -34,7 +35,7 @@ float3 reconstructNormal(float3 posInView)
 
 float3 getNoiseVec(float2 uv)
 {
-	float3 randomVec = noiseTexture.Sample(samplerState1, uv*noiseScale).xyz;
+	float3 randomVec = noiseTexture.Sample(samplerState2, uv*noiseScale).xyz;
 	return randomVec;
 }
 
@@ -44,7 +45,8 @@ float main
 ) : SV_Target
 {
 	float3 viewPosition = getScreenSpacePos(inPs.uv0, inPs.cameraDir);
-	float3 viewNormal = reconstructNormal(viewPosition);
+	//float3 viewNormal = reconstructNormal(viewPosition);
+	float3 viewNormal = normalize( gBuf_normals.Sample( samplerState0, inPs.uv0 ).xyz * 2.0 - 1.0 );
 	float3 randomVec = getNoiseVec(inPs.uv0);
 
 	float3 tangent = normalize(randomVec - viewNormal * dot(randomVec, viewNormal));
@@ -57,7 +59,7 @@ float main
 	{
 		for (int a = 0; a < 8; ++a)
 		{
-			float3 sNoise = sampleDirs[(a << 2u) + i].xyz;
+			float3 sNoise = sampleDirs[(a << 3u) + i].xyz;
 
 			// get sample position
 			float3 oSample = mul(sNoise, TBN); //to view-space

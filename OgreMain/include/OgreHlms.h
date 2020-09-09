@@ -322,8 +322,8 @@ namespace Ogre
         static void evaluateParamArgs( SubStringRef &outSubString, StringVector &outArgs,
                                        bool &outSyntaxError );
 
-        static size_t calculateLineCount(const String &buffer, size_t idx );
-        static size_t calculateLineCount( const SubStringRef &subString );
+        static unsigned long calculateLineCount(const String &buffer, size_t idx );
+        static unsigned long calculateLineCount( const SubStringRef &subString );
 
         /** Caches a set of properties (i.e. key-value pairs) & snippets of shaders. If an
             exact entry exists in the cache, its index is returned. Otherwise a new entry
@@ -799,9 +799,6 @@ namespace Ogre
         static int32 getProperty( const HlmsPropertyVec &properties,
                                   IdString key, int32 defaultVal=0 );
 
-        /// Internal use. @see HlmsManager::setShadowMappingUseBackFaces
-        void _notifyShadowMappingBackFaceSetting(void);
-
         void _clearShaderCache(void);
 
         virtual void _changeRenderSystem( RenderSystem *newRs );
@@ -872,10 +869,13 @@ namespace Ogre
         static const IdString UseUvBaking;
         static const IdString UvBaking;
         static const IdString BakeLightingOnly;
+        static const IdString GenNormalsGBuf;
         static const IdString PrePass;
         static const IdString UsePrePass;
         static const IdString UsePrePassMsaa;
         static const IdString UseSsr;
+        // Per pass. Related with ScreenSpaceRefractions
+        static const IdString SsRefractionsAvailable;
         static const IdString EnableVpls;
         static const IdString ForwardPlus;
         static const IdString ForwardPlusFlipY;
@@ -897,12 +897,16 @@ namespace Ogre
         static const IdString Forward3D;
         static const IdString ForwardClustered;
         static const IdString VPos;
+        static const IdString ScreenPosInt;
+        static const IdString ScreenPosUv;
         static const IdString VertexId;
 
         //Change per material (hash can be cached on the renderable)
         static const IdString AlphaTest;
         static const IdString AlphaTestShadowCasterOnly;
         static const IdString AlphaBlend;
+        // Per material. Related with SsRefractionsAvailable
+        static const IdString ScreenSpaceRefractions;
 
         //Standard depth range is being used instead of reverse Z.
         static const IdString NoReverseDepth;

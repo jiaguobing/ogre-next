@@ -29,6 +29,7 @@ THE SOFTWARE.
 #define _OgreParallaxCorrectedCubemapBase_H_
 
 #include "OgreHlmsPbsPrerequisites.h"
+#include "OgreRenderSystem.h"
 #include "Cubemaps/OgreCubemapProbe.h"
 #include "Compositor/OgreCompositorWorkspaceListener.h"
 #include "OgreIdString.h"
@@ -44,6 +45,7 @@ namespace Ogre
     @see HlmsPbsDatablock::setCubemapProbe
     */
     class _OgreHlmsPbsExport ParallaxCorrectedCubemapBase : public IdObject,
+                                                            public RenderSystem::Listener,
                                                             public CompositorWorkspaceListener
     {
     protected:
@@ -71,9 +73,15 @@ namespace Ogre
                                       bool automaticMode );
         virtual ~ParallaxCorrectedCubemapBase();
 
+        virtual void _releaseManualHardwareResources();
+        virtual void _restoreManualHardwareResources();
+
+        uint32 getIblTargetTextureFlags( PixelFormatGpu pixelFormat ) const;
+        static uint8 getIblNumMipmaps( uint32 width, uint32 height );
+
         /// Adds a cubemap probe.
         CubemapProbe* createProbe(void);
-        void destroyProbe( CubemapProbe *probe );
+        virtual void destroyProbe( CubemapProbe *probe );
         virtual void destroyAllProbes(void);
 
         /// Destroys the Proxy Items. Useful if you need to call sceneManager->clearScene();
@@ -95,6 +103,11 @@ namespace Ogre
         const HlmsSamplerblock* getBindTrilinearSamplerblock(void)
                                                         { return mSamplerblockTrilinear; }
 
+        /// By default the probes will be constructed when the user enters its vecinity.
+        /// This can cause noticeable stalls. Use this function to regenerate them all
+        /// at once (i.e. at loading time)
+        virtual void updateAllDirtyProbes(void) = 0;
+
         virtual void _notifyPreparePassHash( const Matrix4 &viewMatrix );
         virtual size_t getConstBufferSize(void);
         virtual void fillConstBufferData( const Matrix4 &viewMatrix,
@@ -108,6 +121,9 @@ namespace Ogre
         /// Creates one if none found.
         virtual TextureGpu* findTmpRtt( const TextureGpu *baseParams );
         virtual void releaseTmpRtt( const TextureGpu *tmpRtt );
+
+        virtual TextureGpu* findIbl( const TextureGpu *baseParams );
+        virtual void releaseIbl( const TextureGpu *tmpRtt );
 
         virtual void _copyRenderTargetToCubemap( uint32 cubemapArrayIdx );
 
@@ -135,6 +151,9 @@ namespace Ogre
         const CompositorWorkspaceDef* getDefaultWorkspaceDef(void) const;
 
         virtual void passPreExecute( CompositorPass *pass );
+
+        //RenderSystem::Listener overloads
+        virtual void eventOccurred( const String& eventName, const NameValuePairList* parameters );
     };
 
     /** @} */

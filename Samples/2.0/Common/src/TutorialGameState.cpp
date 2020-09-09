@@ -177,9 +177,11 @@ namespace Demo
             Ogre::GpuProgramManager::getSingleton().clearMicrocodeCache();
             hlms->reloadFrom( hlms->getDataFolder() );
         }
-        else if(arg.keysym.scancode == SDL_SCANCODE_ESCAPE)
+        else if( arg.keysym.scancode == SDL_SCANCODE_F5 && (arg.keysym.mod & (KMOD_LCTRL|KMOD_RCTRL)) )
         {
-            mGraphicsSystem->setQuit();
+            //Force device reelection
+            Ogre::Root *root = mGraphicsSystem->getRoot();
+            root->getRenderSystem()->validateDevice( true );
         }
         else
         {

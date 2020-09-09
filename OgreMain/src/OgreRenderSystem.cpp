@@ -54,7 +54,7 @@ THE SOFTWARE.
 
 namespace Ogre {
 
-    RenderSystem::Listener* RenderSystem::msSharedEventListener = 0;
+    RenderSystem::ListenerList  RenderSystem::msSharedEventListeners;
     //-----------------------------------------------------------------------
     RenderSystem::RenderSystem()
         : mCurrentRenderPassDescriptor(0)
@@ -67,9 +67,6 @@ namespace Ogre {
         , mDebugShaders(false)
 #endif
         , mWBuffer(false)
-        , mBatchCount(0)
-        , mFaceCount(0)
-        , mVertexCount(0)
         , mInvertVertexWinding(false)
         , mDisabledTexUnitsFrom(0)
         , mCurrentPassIterationCount(0)
@@ -452,6 +449,24 @@ namespace Ogre {
         assert( itor != mRenderPassDescs.end() && "Already destroyed?" );
         if( itor != mRenderPassDescs.end() )
             mRenderPassDescs.erase( itor );
+
+        if( renderPassDesc->mDepth.texture )
+        {
+            _dereferenceSharedDepthBuffer( renderPassDesc->mDepth.texture );
+
+            if( renderPassDesc->mStencil.texture &&
+                renderPassDesc->mStencil.texture == renderPassDesc->mDepth.texture )
+            {
+                _dereferenceSharedDepthBuffer( renderPassDesc->mStencil.texture );
+                renderPassDesc->mStencil.texture = 0;
+            }
+        }
+        if( renderPassDesc->mStencil.texture )
+        {
+            _dereferenceSharedDepthBuffer( renderPassDesc->mStencil.texture );
+            renderPassDesc->mStencil.texture = 0;
+        }
+
         delete renderPassDesc;
     }
     //---------------------------------------------------------------------
@@ -505,8 +520,71 @@ namespace Ogre {
         mUavRenderingDirty = true;
     }
     //---------------------------------------------------------------------
+    void RenderSystem::destroySharedDepthBuffer( TextureGpu *depthBuffer )
+    {
+        TextureGpuVec &bufferVec = mDepthBufferPool2[depthBuffer->getDepthBufferPoolId()];
+        TextureGpuVec::iterator itor = std::find( bufferVec.begin(), bufferVec.end(), depthBuffer );
+        if( itor != bufferVec.end() )
+        {
+            efficientVectorRemove( bufferVec, itor );
+            mTextureGpuManager->destroyTexture( depthBuffer );
+        }
+    }
+    //---------------------------------------------------------------------
+    void RenderSystem::_cleanupDepthBuffers( void )
+    {
+        TextureGpuSet::const_iterator itor = mSharedDepthBufferZeroRefCandidates.begin();
+        TextureGpuSet::const_iterator endt = mSharedDepthBufferZeroRefCandidates.end();
+
+        while( itor != endt )
+        {
+            // When a shared depth buffer ends up in mSharedDepthBufferZeroRefCandidates,
+            // it's because its ref. count reached 0. However it may have been reacquired.
+            // We need to check its reference count is still 0 before deleting it.
+            DepthBufferRefMap::iterator itMap = mSharedDepthBufferRefs.find( *itor );
+            if( itMap != mSharedDepthBufferRefs.end() && itMap->second == 0u )
+            {
+                destroySharedDepthBuffer( *itor );
+                mSharedDepthBufferRefs.erase( itMap );
+            }
+            ++itor;
+        }
+
+        mSharedDepthBufferZeroRefCandidates.clear();
+    }
+    //---------------------------------------------------------------------
+    void RenderSystem::referenceSharedDepthBuffer( TextureGpu *depthBuffer )
+    {
+        OGRE_ASSERT_MEDIUM( depthBuffer->getSourceType() == TextureSourceType::SharedDepthBuffer );
+        OGRE_ASSERT_MEDIUM( mSharedDepthBufferRefs.find( depthBuffer ) != mSharedDepthBufferRefs.end() );
+        ++mSharedDepthBufferRefs[depthBuffer];
+    }
+    //---------------------------------------------------------------------
+    void RenderSystem::_dereferenceSharedDepthBuffer( TextureGpu *depthBuffer )
+    {
+        if( !depthBuffer )
+            return;
+
+        DepthBufferRefMap::iterator itor = mSharedDepthBufferRefs.find( depthBuffer );
+
+        if( itor != mSharedDepthBufferRefs.end() )
+        {
+            OGRE_ASSERT_MEDIUM( depthBuffer->getSourceType() == TextureSourceType::SharedDepthBuffer );
+            OGRE_ASSERT_LOW( itor->second > 0u && "Releasing a shared depth buffer too much" );
+            --itor->second;
+
+            if( itor->second == 0u )
+                mSharedDepthBufferZeroRefCandidates.insert( depthBuffer );
+        }
+        else
+        {
+            // This is not a shared depth buffer (e.g. one created by the user)
+            OGRE_ASSERT_MEDIUM( depthBuffer->getSourceType() != TextureSourceType::SharedDepthBuffer );
+        }
+    }
+    //---------------------------------------------------------------------
     TextureGpu* RenderSystem::createDepthBufferFor( TextureGpu *colourTexture, bool preferDepthTexture,
-                                                    PixelFormatGpu depthBufferFormat )
+                                                    PixelFormatGpu depthBufferFormat, uint16 poolId )
     {
         uint32 textureFlags = TextureFlags::RenderToTexture;
 
@@ -520,13 +598,16 @@ namespace Ogre {
         TextureGpu *retVal = mTextureGpuManager->createTexture( depthBufferName.c_str(),
                                                                 GpuPageOutStrategy::Discard,
                                                                 textureFlags, TextureTypes::Type2D );
-
         retVal->setResolution( colourTexture->getWidth(), colourTexture->getHeight() );
         retVal->setPixelFormat( depthBufferFormat );
+        retVal->_setDepthBufferDefaults( poolId, preferDepthTexture, depthBufferFormat );
+        retVal->_setSourceType( TextureSourceType::SharedDepthBuffer );
         retVal->setSampleDescription( colourTexture->getRequestedSampleDescription() );
 
         retVal->_transitionTo( GpuResidency::Resident, (uint8*)0 );
 
+        // Start reference count on the depth buffer here
+        mSharedDepthBufferRefs[retVal] = 1u;
         return retVal;
     }
     //---------------------------------------------------------------------
@@ -547,7 +628,7 @@ namespace Ogre {
         if( poolId == DepthBuffer::POOL_NON_SHAREABLE )
         {
             TextureGpu *retVal = createDepthBufferFor( colourTexture, preferDepthTexture,
-                                                       depthBufferFormat );
+                                                       depthBufferFormat, poolId );
             return retVal;
         }
 
@@ -565,6 +646,7 @@ namespace Ogre {
                 (*itor)->supportsAsDepthBufferFor( colourTexture ) )
             {
                 retVal = *itor;
+                referenceSharedDepthBuffer( retVal );
             }
             else
             {
@@ -576,7 +658,8 @@ namespace Ogre {
         //Not found yet? Create a new one!
         if( !retVal )
         {
-            retVal = createDepthBufferFor( colourTexture, preferDepthTexture, depthBufferFormat );
+            retVal =
+                createDepthBufferFor( colourTexture, preferDepthTexture, depthBufferFormat, poolId );
             mDepthBufferPool2[poolId].push_back( retVal );
 
             if( !retVal )
@@ -643,6 +726,11 @@ namespace Ogre {
         mHwOcclusionQueries.clear();
 
         destroyAllRenderPassDescriptors();
+        _cleanupDepthBuffers();
+        OGRE_ASSERT_LOW( mSharedDepthBufferRefs.empty() &&
+                         "destroyAllRenderPassDescriptors followed by _cleanupDepthBuffers should've "
+                         "emptied mSharedDepthBufferRefs. Please report this bug to "
+                         "https://github.com/OGRECave/ogre-next/issues/" );
 
         OGRE_DELETE mTextureGpuManager;
         mTextureGpuManager = 0;
@@ -679,25 +767,33 @@ namespace Ogre {
         }
     }
     //-----------------------------------------------------------------------
-    void RenderSystem::_beginGeometryCount(void)
+    void RenderSystem::_resetMetrics()
     {
-        mBatchCount = mFaceCount = mVertexCount = 0;
-
+        const bool oldValue = mMetrics.mIsRecordingMetrics;
+        mMetrics = Metrics();
+        mMetrics.mIsRecordingMetrics = oldValue;
     }
     //-----------------------------------------------------------------------
-    unsigned int RenderSystem::_getFaceCount(void) const
+    void RenderSystem::_addMetrics( const Metrics &newMetrics )
     {
-        return static_cast< unsigned int >( mFaceCount );
+        if( mMetrics.mIsRecordingMetrics )
+        {
+            mMetrics.mBatchCount += newMetrics.mBatchCount;
+            mMetrics.mFaceCount += newMetrics.mFaceCount;
+            mMetrics.mVertexCount += newMetrics.mVertexCount;
+            mMetrics.mDrawCount += newMetrics.mDrawCount;
+            mMetrics.mInstanceCount += newMetrics.mInstanceCount;
+        }
     }
     //-----------------------------------------------------------------------
-    unsigned int RenderSystem::_getBatchCount(void) const
+    void RenderSystem::setMetricsRecordingEnabled( bool bEnable )
     {
-        return static_cast< unsigned int >( mBatchCount );
+        mMetrics.mIsRecordingMetrics = bEnable;
     }
     //-----------------------------------------------------------------------
-    unsigned int RenderSystem::_getVertexCount(void) const
+    const RenderSystem::Metrics& RenderSystem::getMetrics() const
     {
-        return static_cast< unsigned int >( mVertexCount );
+        return mMetrics;
     }
     //-----------------------------------------------------------------------
     void RenderSystem::convertColourValue(const ColourValue& colour, uint32* pDest)
@@ -915,11 +1011,11 @@ namespace Ogre {
         switch(op.operationType)
         {
         case OT_TRIANGLE_LIST:
-            mFaceCount += (val / 3);
+            mMetrics.mFaceCount += (val / 3u);
             break;
         case OT_TRIANGLE_STRIP:
         case OT_TRIANGLE_FAN:
-            mFaceCount += (val - 2);
+            mMetrics.mFaceCount += (val - 2u);
             break;
         case OT_POINT_LIST:
         case OT_LINE_LIST:
@@ -959,8 +1055,8 @@ namespace Ogre {
             break;
         }
 
-        mVertexCount += op.vertexData->vertexCount * trueInstanceNum;
-        mBatchCount += mCurrentPassIterationCount;
+        mMetrics.mVertexCount += op.vertexData->vertexCount * trueInstanceNum;
+        mMetrics.mBatchCount += mCurrentPassIterationCount;
 
         // sort out clip planes
         // have to do it here in case of matrix issues
@@ -1059,15 +1155,14 @@ namespace Ogre {
     }
 
     //-----------------------------------------------------------------------
-    void RenderSystem::setSharedListener(Listener* listener)
+    void RenderSystem::addSharedListener(Listener* l)
     {
-        assert(msSharedEventListener == NULL || listener == NULL); // you can set or reset, but for safety not directly override
-        msSharedEventListener = listener;
+        msSharedEventListeners.push_back(l);
     }
     //-----------------------------------------------------------------------
-    RenderSystem::Listener* RenderSystem::getSharedListener(void)
+    void RenderSystem::removeSharedListener(Listener* l)
     {
-        return msSharedEventListener;
+        msSharedEventListeners.remove(l);
     }
     //-----------------------------------------------------------------------
     void RenderSystem::addListener(Listener* l)
@@ -1087,9 +1182,16 @@ namespace Ogre {
         {
             (*i)->eventOccurred(name, params);
         }
-
-        if(msSharedEventListener)
-            msSharedEventListener->eventOccurred(name, params);
+        fireSharedEvent(name, params);
+    }
+    //-----------------------------------------------------------------------
+    void RenderSystem::fireSharedEvent(const String& name, const NameValuePairList* params)
+    {
+        for(ListenerList::iterator i = msSharedEventListeners.begin(); 
+            i != msSharedEventListeners.end(); ++i)
+        {
+            (*i)->eventOccurred(name, params);
+        }
     }
     //-----------------------------------------------------------------------
     void RenderSystem::destroyHardwareOcclusionQuery( HardwareOcclusionQuery *hq)
@@ -1218,6 +1320,17 @@ namespace Ogre {
     }
     //---------------------------------------------------------------------
     void RenderSystem::_clearStateAndFlushCommandBuffer(void)
+    {
+    }
+    //---------------------------------------------------------------------
+    RenderSystem::Listener::~Listener() {}
+    RenderSystem::Metrics::Metrics() :
+        mIsRecordingMetrics( false ),
+        mBatchCount( 0 ),
+        mFaceCount( 0 ),
+        mVertexCount( 0 ),
+        mDrawCount( 0 ),
+        mInstanceCount( 0 )
     {
     }
 }

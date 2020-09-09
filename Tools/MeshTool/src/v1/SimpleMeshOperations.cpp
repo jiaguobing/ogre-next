@@ -168,7 +168,8 @@ void recalcBounds(const v1::VertexData* vdata, AxisAlignedBox& aabb, Real& radiu
 
     const v1::HardwareVertexBufferSharedPtr buf = vdata->vertexBufferBinding->getBuffer(
                 posElem->getSource());
-    void* pBase = buf->lock(v1::HardwareBuffer::HBL_READ_ONLY);
+    v1::HardwareBufferLockGuard bufLock(buf, v1::HardwareBuffer::HBL_READ_ONLY);
+    void* pBase = bufLock.pData;
 
     for (size_t v = 0; v < vdata->vertexCount; ++v)
     {
@@ -177,12 +178,10 @@ void recalcBounds(const v1::VertexData* vdata, AxisAlignedBox& aabb, Real& radiu
 
         Vector3 pos(pFloat[0], pFloat[1], pFloat[2]);
         aabb.merge(pos);
-        radius = Ogre::max( radius, pos.length() );
+        radius = std::max( radius, pos.length() );
 
         pBase = static_cast<void*>(static_cast<char*>(pBase) + buf->getVertexSize());
     }
-
-    buf->unlock();
 }
 
 void recalcBounds( const VertexArrayObject *vao, AxisAlignedBox& aabb, Real& radius )
@@ -205,7 +204,7 @@ void recalcBounds( const VertexArrayObject *vao, AxisAlignedBox& aabb, Real& rad
             const float *fpData = reinterpret_cast<const float*>( data + elemOffset );
             Vector3 pos( fpData[0], fpData[1], fpData[2] );
             aabb.merge( pos );
-            radius = Ogre::max( radius, pos.length() );
+            radius = std::max( radius, pos.length() );
 
             data += bytesPerVertex;
         }

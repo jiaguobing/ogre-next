@@ -328,7 +328,7 @@ namespace Ogre
         for( uint32 i=0; i<kernelRadius + 1u; ++i )
         {
             const float val = i - fKernelRadius + ( 1.0f - 1.0f / stepSize );
-            float fWeight = 1.0f / sqrt ( 2.0f * Math::PI * gaussianDeviation * gaussianDeviation );
+            float fWeight = 1.0f / std::sqrt ( 2.0f * Math::PI * gaussianDeviation * gaussianDeviation );
             fWeight *= exp( - ( val * val ) / ( 2.0f * gaussianDeviation * gaussianDeviation ) );
 
             fWeightSum += fWeight;
@@ -360,6 +360,8 @@ namespace Ogre
             }
         }
 
+        const bool bIsHlsl = job->getCreator()->getShaderProfile() == "hlsl";
+
         //Set the shader constants, 16 at a time (since that's the limit of what ManualParam can hold)
         char tmp[32];
         LwString weightsString( LwString::FromEmptyPointer( tmp, sizeof(tmp) ) );
@@ -367,7 +369,10 @@ namespace Ogre
         for( uint32 i=0; i<kernelRadius + 1u; i += floatsPerParam )
         {
             weightsString.clear();
-            weightsString.a( "c_weights[", i, "]" );
+            if( !bIsHlsl )
+                weightsString.a( "c_weights[", i, "]" );
+            else
+                weightsString.a( "c_weights[", ( i >> 2u ), "]" );
 
             ShaderParams::Param p;
             p.isAutomatic   = false;
@@ -394,15 +399,12 @@ namespace Ogre
 
         profilingBegin();
 
-        CompositorWorkspaceListener *listener = mParentNode->getWorkspace()->getListener();
-        if( listener )
-            listener->passEarlyPreExecute( this );
+        notifyPassEarlyPreExecuteListeners();
 
         executeResourceTransitions();
 
         //Fire the listener in case it wants to change anything
-        if( listener )
-            listener->passPreExecute( this );
+        notifyPassPreExecuteListeners();
 
         const bool usesCompute = !mJobs.empty();
 
@@ -452,8 +454,7 @@ namespace Ogre
             }
         }
 
-        if( listener )
-            listener->passPosExecute( this );
+        notifyPassPosExecuteListeners();
 
         profilingEnd();
     }

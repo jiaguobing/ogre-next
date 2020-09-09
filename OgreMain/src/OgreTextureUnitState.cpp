@@ -77,7 +77,7 @@ namespace Ogre {
         HlmsManager *hlmsManager = parent->_getDatablock()->getCreator()->getHlmsManager();
         HlmsSamplerblock samplerblock;
         samplerblock.setAddressingMode( TAM_WRAP );
-        mSamplerblock = hlmsManager->getSamplerblock( HlmsSamplerblock() );
+        mSamplerblock = hlmsManager->getSamplerblock( samplerblock );
     }
     //-----------------------------------------------------------------------
     TextureUnitState::TextureUnitState(Pass* parent, const TextureUnitState& oth )
@@ -124,7 +124,7 @@ namespace Ogre {
         HlmsManager *hlmsManager = parent->_getDatablock()->getCreator()->getHlmsManager();
         HlmsSamplerblock samplerblock;
         samplerblock.setAddressingMode( TAM_WRAP );
-        mSamplerblock = hlmsManager->getSamplerblock( HlmsSamplerblock() );
+        mSamplerblock = hlmsManager->getSamplerblock( samplerblock );
     }
     //-----------------------------------------------------------------------
     TextureUnitState::~TextureUnitState()
@@ -488,9 +488,7 @@ namespace Ogre {
 
         for (unsigned int i = 0; i < mFrames.size(); ++i)
         {
-            StringStream str;
-            str << baseName << "_" << i << ext;
-            mFrames[i] = str.str();
+            mFrames[i] = baseName + "_" + StringConverter::toString( i ) + ext;
             mFramePtrs[i] = 0;
         }
 
@@ -1066,7 +1064,18 @@ namespace Ogre {
     void TextureUnitState::_setTexturePtr( TextureGpu *texptr, size_t frame )
     {
         assert(frame < mFramePtrs.size());
-        mFramePtrs[frame] = texptr;
+
+        if (mFramePtrs[frame] != texptr)
+        {
+            if (mFramePtrs[frame])
+            {
+                mFramePtrs[frame]->removeListener(this);
+            }
+
+            mFramePtrs[frame] = texptr;
+
+            mFramePtrs[frame]->addListener(this);
+        }
     }
     //-----------------------------------------------------------------------
     void TextureUnitState::ensurePrepared(size_t frame) const
@@ -1441,7 +1450,6 @@ namespace Ogre {
         cleanFramePtrs();
         mFrames.resize(1);
         mFramePtrs.resize(1);
-        mFrames[0] = textureName;
         mCompositorRefTexName = textureName;
     }
     //-----------------------------------------------------------------------

@@ -48,8 +48,8 @@ namespace Ogre
     {
     protected:
         /// 4x4 texture for when we have nothing to display.
-        ID3D11Resource              *mBlankTexture[TextureTypes::Type3D + 1u];
-        ID3D11ShaderResourceView    *mDefaultSrv[TextureTypes::Type3D + 1u];
+        ComPtr<ID3D11Resource>              mBlankTexture[TextureTypes::Type3D + 1u];
+        ComPtr<ID3D11ShaderResourceView>    mDefaultSrv[TextureTypes::Type3D + 1u];
 
         D3D11Device &mDevice;
 
@@ -69,6 +69,9 @@ namespace Ogre
         D3D11TextureGpuManager( VaoManager *vaoManager, RenderSystem *renderSystem,
                                 D3D11Device &device );
         virtual ~D3D11TextureGpuManager();
+
+        void _createD3DResources();
+        void _destroyD3DResources();
 
         /** Creates a special D3D11TextureGpuWindow pointer, to be used by Ogre::Window.
             The pointer can be freed by a regular OGRE_DELETE. We do not track this pointer.

@@ -51,9 +51,9 @@ namespace Ogre
         mWindow( window )
     {
         mTextureType = TextureTypes::Type2D;
-        mFinalTextureName = 0;
+        mFinalTextureName.Reset();
         mDisplayTextureName = 0;
-        mDefaultDisplaySrv = 0;
+        mDefaultDisplaySrv.Reset();
     }
     //-----------------------------------------------------------------------------------
     D3D11TextureGpuWindow::~D3D11TextureGpuWindow()

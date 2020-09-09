@@ -139,6 +139,7 @@ namespace Ogre
         desc.SwapEffect           = IsWindows10OrGreater() ? DXGI_SWAP_EFFECT_FLIP_DISCARD : DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
 #endif
         desc.AlphaMode            = DXGI_ALPHA_MODE_UNSPECIFIED;
+        desc.Flags                = _getSwapChainFlags();
 
         // Create swap chain
         HRESULT hr = mDevice.GetDXGIFactory()->CreateSwapChainForCoreWindow(mDevice.get(),
@@ -281,6 +282,7 @@ namespace Ogre
         desc.Scaling              = DXGI_SCALING_STRETCH;             // Required for CreateSwapChainForComposition.
         desc.SwapEffect           = IsWindows10OrGreater() ? DXGI_SWAP_EFFECT_FLIP_DISCARD : DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
         desc.AlphaMode            = DXGI_ALPHA_MODE_UNSPECIFIED;
+        desc.Flags                = _getSwapChainFlags();
 
         // Create swap chain
         HRESULT hr = mDevice.GetDXGIFactory()->CreateSwapChainForComposition(mDevice.get(),
@@ -307,6 +309,16 @@ namespace Ogre
 
         hr = _compensateSwapChainCompositionScale();
         return hr;
+    }
+    //---------------------------------------------------------------------
+    void D3D11WindowSwapChainPanel::_destroySwapChain()
+    {
+        // Broke association between SwapChainPanel and swap chain to avoid reporting it as leaked on device lost event
+        ComPtr<ISwapChainPanelNative> panelNative;
+        if (SUCCEEDED(reinterpret_cast<IUnknown*>(mSwapChainPanel)->QueryInterface(IID_PPV_ARGS(panelNative.ReleaseAndGetAddressOf()))))
+            panelNative->SetSwapChain(0);
+
+        D3D11WindowSwapChainBased::_destroySwapChain();
     }
     //---------------------------------------------------------------------
     HRESULT D3D11WindowSwapChainPanel::_compensateSwapChainCompositionScale()

@@ -45,6 +45,8 @@ THE SOFTWARE.
 #include "OgreTextureGpuListener.h"
 #include "OgreProfiler.h"
 
+#include <sstream>
+
 #define TODO_notify_listeners
 
 namespace Ogre
@@ -669,7 +671,9 @@ namespace Ogre
         mTexture->setSampleDescription( mSampleDescription );
         mDepthBuffer->setSampleDescription( mSampleDescription );
 
-        setFinalResolution( mRequestedWidth, mRequestedHeight );
+        RECT rc;
+        GetClientRect( mHwnd, &rc );  // width and height represent interior drawable area
+        setFinalResolution( rc.right - rc.left, rc.bottom - rc.top );
 
         if( mDepthBuffer )
         {
@@ -749,7 +753,7 @@ namespace Ogre
     {
         if( mHwnd && !mRequestedFullscreenMode )
         {
-            SetWindowPos( mHwnd, 0, top, left, 0, 0,
+            SetWindowPos( mHwnd, 0, left, top, 0, 0,
                           SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE );
         }
     }

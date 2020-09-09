@@ -551,6 +551,39 @@ namespace Ogre {
         return mCurrentJob;
     }
     //-----------------------------------------------------------------------------
+    Vector4 AutoParamDataSource::getUavSize(size_t index) const
+    {
+        Vector4 size = Vector4( 1, 1, 1, 1 );
+
+        if( mCurrentJob && index < mCurrentJob->getNumUavUnits() )
+        {
+            const TextureGpu *tex = mCurrentJob->getUavTexture( static_cast<uint8>( index ) );
+            if( tex )
+            {
+                size.x = static_cast<Real>( tex->getWidth() );
+                size.y = static_cast<Real>( tex->getHeight() );
+                size.z = static_cast<Real>( tex->getDepth() );
+            }
+        }
+
+        size.w = std::max( size.x, size.y );
+        size.w = std::max( size.w, size.z );
+
+        return size;
+    }
+    //-----------------------------------------------------------------------------
+    Vector4 AutoParamDataSource::getInverseUavSize(size_t index) const
+    {
+        Vector4 size = getUavSize(index);
+        return 1 / size;
+    }
+    //-----------------------------------------------------------------------------
+    Vector4 AutoParamDataSource::getPackedUavSize(size_t index) const
+    {
+        Vector4 size = getUavSize(index);
+        return Vector4(size.x, size.y, 1 / size.x, 1 / size.y);
+    }
+    //-----------------------------------------------------------------------------
     Vector4 AutoParamDataSource::getTextureSize(size_t index) const
     {
         Vector4 size = Vector4(1,1,1,1);
@@ -577,8 +610,8 @@ namespace Ogre {
             }
         }
 
-        size.w = Ogre::max( size.x, size.y );
-        size.w = Ogre::max( size.w, size.z );
+        size.w = std::max( size.x, size.y );
+        size.w = std::max( size.w, size.z );
 
         return size;
     }
@@ -965,28 +998,28 @@ namespace Ogre {
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getTime_0_X(Real x) const
     {
-        return fmod(this->getTime(), x);
+        return std::fmod(this->getTime(), x);
     }
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getCosTime_0_X(Real x) const
     { 
-        return cos(this->getTime_0_X(x)); 
+        return std::cos(this->getTime_0_X(x));
     }
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getSinTime_0_X(Real x) const
     { 
-        return sin(this->getTime_0_X(x)); 
+        return std::sin(this->getTime_0_X(x));
     }
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getTanTime_0_X(Real x) const
     { 
-        return tan(this->getTime_0_X(x)); 
+        return std::tan(this->getTime_0_X(x));
     }
     //-----------------------------------------------------------------------------
     Vector4 AutoParamDataSource::getTime_0_X_packed(Real x) const
     {
         Real t = this->getTime_0_X(x);
-        return Vector4(t, sin(t), cos(t), tan(t));
+        return Vector4(t, std::sin(t), std::cos(t), std::tan(t));
     }
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getTime_0_1(Real x) const
@@ -996,23 +1029,23 @@ namespace Ogre {
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getCosTime_0_1(Real x) const
     { 
-        return cos(this->getTime_0_1(x)); 
+        return std::cos(this->getTime_0_1(x)); 
     }
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getSinTime_0_1(Real x) const
     { 
-        return sin(this->getTime_0_1(x)); 
+        return std::sin(this->getTime_0_1(x));
     }
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getTanTime_0_1(Real x) const
     { 
-        return tan(this->getTime_0_1(x)); 
+        return std::tan(this->getTime_0_1(x));
     }
     //-----------------------------------------------------------------------------
     Vector4 AutoParamDataSource::getTime_0_1_packed(Real x) const
     {
         Real t = this->getTime_0_1(x);
-        return Vector4(t, sin(t), cos(t), tan(t));
+        return Vector4(t, std::sin(t), std::cos(t), std::tan(t));
     }
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getTime_0_2Pi(Real x) const
@@ -1022,23 +1055,23 @@ namespace Ogre {
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getCosTime_0_2Pi(Real x) const
     { 
-        return cos(this->getTime_0_2Pi(x)); 
+        return std::cos(this->getTime_0_2Pi(x));
     }
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getSinTime_0_2Pi(Real x) const
     { 
-        return sin(this->getTime_0_2Pi(x)); 
+        return std::sin(this->getTime_0_2Pi(x));
     }
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getTanTime_0_2Pi(Real x) const
     { 
-        return tan(this->getTime_0_2Pi(x)); 
+        return std::tan(this->getTime_0_2Pi(x));
     }
     //-----------------------------------------------------------------------------
     Vector4 AutoParamDataSource::getTime_0_2Pi_packed(Real x) const
     {
         Real t = this->getTime_0_2Pi(x);
-        return Vector4(t, sin(t), cos(t), tan(t));
+        return Vector4(t, std::sin(t), std::cos(t), std::tan(t));
     }
     //-----------------------------------------------------------------------------
     Real AutoParamDataSource::getFrameTime(void) const
@@ -1167,7 +1200,8 @@ namespace Ogre {
         return mCurrentSceneManager->getShadowColour();
     }
     //-------------------------------------------------------------------------
-    void AutoParamDataSource::updateLightCustomGpuParameter(const GpuProgramParameters::AutoConstantEntry& constantEntry, GpuProgramParameters *params) const
+    void AutoParamDataSource::updateLightCustomGpuParameter(
+        const GpuProgramParameters_AutoConstantEntry &constantEntry, GpuProgramParameters *params ) const
     {
         uint16 lightIndex = static_cast<uint16>(constantEntry.data & 0xFFFF),
             paramIndex = static_cast<uint16>((constantEntry.data >> 16) & 0xFFFF);

@@ -64,6 +64,7 @@ Copyright (c) 2000-2016 Torus Knot Software Ltd
 #import <Metal/Metal.h>
 #import <Foundation/NSEnumerator.h>
 
+#include <sstream>
 
 namespace Ogre
 {
@@ -110,6 +111,9 @@ namespace Ogre
     //-------------------------------------------------------------------------
     void MetalRenderSystem::shutdown(void)
     {
+        if( mActiveDevice )
+            mActiveDevice->endAllEncoders();
+        
         for( size_t i=0; i<mAutoParamsBuffer.size(); ++i )
         {
             if( mAutoParamsBuffer[i]->getMappingState() != MS_UNMAPPED )
@@ -242,6 +246,21 @@ namespace Ogre
         }
     }
     //-------------------------------------------------------------------------
+    SampleDescription MetalRenderSystem::validateSampleDescription( const SampleDescription &sampleDesc,
+                                                                    PixelFormatGpu format )
+    {
+        uint8 samples = sampleDesc.getMaxSamples();
+        if( @available( iOS 9.0, * ) )
+        {
+            if( mActiveDevice )
+            {
+                while( samples > 1 && ![mActiveDevice->mDevice supportsTextureSampleCount:samples] )
+                    --samples;
+            }
+        }
+        return SampleDescription( samples, sampleDesc.getMsaaPattern() );
+    }
+    //-------------------------------------------------------------------------
     HardwareOcclusionQuery* MetalRenderSystem::createHardwareOcclusionQuery(void)
     {
         return 0; //TODO
@@ -359,9 +378,12 @@ namespace Ogre
 #if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
         if( [mActiveDevice->mDevice supportsFeatureSet:MTLFeatureSet_iOS_GPUFamily3_v2] )
             rsc->setCapability(RSC_STORE_AND_MULTISAMPLE_RESOLVE);
+        if( [mActiveDevice->mDevice supportsFeatureSet:MTLFeatureSet_iOS_GPUFamily4_v1] )
+            rsc->setCapability(RSC_DEPTH_CLAMP);
 #else
         if( [mActiveDevice->mDevice supportsFeatureSet:MTLFeatureSet_OSX_GPUFamily1_v2] )
             rsc->setCapability(RSC_STORE_AND_MULTISAMPLE_RESOLVE);
+        rsc->setCapability(RSC_DEPTH_CLAMP);
 #endif
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
@@ -369,11 +391,22 @@ namespace Ogre
         rsc->setCapability( RSC_TILER_CAN_CLEAR_STENCIL_REGION );
 #endif
 
+        rsc->setCapability( RSC_UAV );
 #if OGRE_PLATFORM != OGRE_PLATFORM_APPLE_IOS
-        rsc->setCapability(RSC_UAV);
         rsc->setCapability(RSC_TEXTURE_CUBE_MAP_ARRAY);
 #endif
+
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
+        if( [mActiveDevice->mDevice supportsFeatureSet:MTLFeatureSet_iOS_GPUFamily5_v1] )
+            rsc->setCapability(RSC_VP_AND_RT_ARRAY_INDEX_FROM_ANY_SHADER);
+
+        if( [mActiveDevice->mDevice supportsFeatureSet:MTLFeatureSet_iOS_GPUFamily4_v1] )
+            rsc->setCapability( RSC_TYPED_UAV_LOADS );
+#else
+        rsc->setCapability(RSC_VP_AND_RT_ARRAY_INDEX_FROM_ANY_SHADER);
         rsc->setCapability( RSC_TYPED_UAV_LOADS );
+#endif
+
         //rsc->setCapability(RSC_ATOMIC_COUNTERS);
 
         rsc->addShaderProfile( "metal" );
@@ -1126,7 +1159,7 @@ namespace Ogre
             passDesc->performStoreActions( RenderPassDescriptor::All, isInterruptingRender );
 
             mEntriesToFlush = 0;
-            mVpChanged = false;
+            mVpChanged = true;
 
             mInterruptedRenderCommandEncoder = isInterruptingRender;
 
@@ -1142,15 +1175,16 @@ namespace Ogre
         endRenderPassDescriptor( false );
     }
     //-----------------------------------------------------------------------------------
-    TextureGpu* MetalRenderSystem::createDepthBufferFor( TextureGpu *colourTexture,
+    TextureGpu *MetalRenderSystem::createDepthBufferFor( TextureGpu *colourTexture,
                                                          bool preferDepthTexture,
-                                                         PixelFormatGpu depthBufferFormat )
+                                                         PixelFormatGpu depthBufferFormat,
+                                                         uint16 poolId )
     {
         if( depthBufferFormat == PFG_UNKNOWN )
             depthBufferFormat = DepthBuffer::DefaultDepthBufferFormat;
 
         return RenderSystem::createDepthBufferFor( colourTexture, preferDepthTexture,
-                                                   depthBufferFormat );
+                                                   depthBufferFormat, poolId );
     }
     //-------------------------------------------------------------------------
     void MetalRenderSystem::_setTextureCoordCalculation( size_t unit, TexCoordCalcMethod m,
@@ -1705,7 +1739,8 @@ namespace Ogre
     //-------------------------------------------------------------------------
     template <typename TDescriptorSetTexture,
               typename TTexSlot,
-              typename TBufferPacked>
+              typename TBufferPacked,
+              bool isUav>
     void MetalRenderSystem::_descriptorSetTextureCreated( TDescriptorSetTexture *newSet,
                                                           const FastArray<TTexSlot> &texContainer,
                                                           uint16 *shaderTypeTexCount )
@@ -1754,8 +1789,13 @@ namespace Ogre
                 }
 
                 const typename TDescriptorSetTexture::TextureSlot &texSlot = itor->getTexture();
-                if( texSlot.needsDifferentView() )
+                const TextureTypes::TextureTypes texType = texSlot.texture->getTextureType();
+                if( texSlot.needsDifferentView() ||
+                    ( isUav &&
+                      ( texType == TextureTypes::TypeCube || texType == TextureTypes::TypeCubeArray ) ) )
+                {
                     ++metalSet->numTextureViews;
+                }
                 ++numTextures;
             }
             else
@@ -1851,7 +1891,10 @@ namespace Ogre
                 MetalTextureGpu *metalTex = static_cast<MetalTextureGpu*>( texSlot.texture );
                 __unsafe_unretained id<MTLTexture> textureHandle = metalTex->getDisplayTextureName();
 
-                if( texSlot.needsDifferentView() )
+                const TextureTypes::TextureTypes texType = texSlot.texture->getTextureType();
+                if( texSlot.needsDifferentView() ||
+                    ( isUav &&
+                      ( texType == TextureTypes::TypeCube || texType == TextureTypes::TypeCubeArray ) ) )
                 {
                     metalSet->textureViews[texViewIndex] = metalTex->getView( texSlot );
                     textureHandle = metalSet->textureViews[texViewIndex];
@@ -1928,7 +1971,8 @@ namespace Ogre
         _descriptorSetTextureCreated<
                 DescriptorSetTexture2,
                 DescriptorSetTexture2::Slot,
-                MetalTexBufferPacked>( newSet, newSet->mTextures, newSet->mShaderTypeTexCount );
+                MetalTexBufferPacked,
+                false>( newSet, newSet->mTextures, newSet->mShaderTypeTexCount );
     }
     //-------------------------------------------------------------------------
     void MetalRenderSystem::_descriptorSetTexture2Destroyed( DescriptorSetTexture2 *set )
@@ -1949,7 +1993,8 @@ namespace Ogre
         _descriptorSetTextureCreated<
                 DescriptorSetUav,
                 DescriptorSetUav::Slot,
-                MetalUavBufferPacked>( newSet, newSet->mUavs, 0 );
+                MetalUavBufferPacked,
+                true>( newSet, newSet->mUavs, 0 );
     }
     //-------------------------------------------------------------------------
     void MetalRenderSystem::_descriptorSetUavDestroyed( DescriptorSetUav *set )
@@ -2003,12 +2048,22 @@ namespace Ogre
                                      slopeScale:pso->macroblock->mDepthBiasSlopeScale * biasSign
                                      clamp:0.0f];
         [mActiveRenderEncoder setCullMode:metalPso->cullMode];
+        if( @available( iOS 11.0, * ) )
+        {
+            [mActiveRenderEncoder setDepthClipMode:pso->macroblock->mDepthClamp ? MTLDepthClipModeClamp
+                                                                                : MTLDepthClipModeClip];
+        }
 
         if( mPso != metalPso )
         {
             [mActiveRenderEncoder setRenderPipelineState:metalPso->pso];
             mPso = metalPso;
         }
+
+        MTLTriangleFillMode fillMode = (
+            pso->macroblock->mPolygonMode == PM_SOLID
+        ) ? MTLTriangleFillModeFill : MTLTriangleFillModeLines;
+        [mActiveRenderEncoder setTriangleFillMode:fillMode];
     }
     //-------------------------------------------------------------------------
     void MetalRenderSystem::_setComputePso( const HlmsComputePso *pso )

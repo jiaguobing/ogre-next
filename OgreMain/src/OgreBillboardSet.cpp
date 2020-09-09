@@ -134,7 +134,7 @@ namespace v1 {
         newBill->_notifyOwner(this);
 
         // Merge into bounds
-        Real adjust = Ogre::max(mDefaultWidth, mDefaultHeight);
+        Real adjust = std::max(mDefaultWidth, mDefaultHeight);
         Vector3 vecAdjust(adjust, adjust, adjust);
         Vector3 newMin = position - vecAdjust;
         Vector3 newMax = position + vecAdjust;
@@ -551,10 +551,10 @@ namespace v1 {
                 min.makeFloor(pos);
                 max.makeCeil(pos);
 
-                maxSqLen = Ogre::max(maxSqLen, pos.squaredLength());
+                maxSqLen = std::max(maxSqLen, pos.squaredLength());
             }
             // Adjust for billboard size
-            Real adjust = Ogre::max(mDefaultWidth, mDefaultHeight);
+            Real adjust = std::max(mDefaultWidth, mDefaultHeight);
             Vector3 vecAdjust(adjust, adjust, adjust);
             min -= vecAdjust;
             max += vecAdjust;
@@ -805,10 +805,8 @@ namespace v1 {
                 2-----3
             */
 
-            ushort* pIdx = static_cast<ushort*>(
-                mIndexData->indexBuffer->lock(0,
-                  mIndexData->indexBuffer->getSizeInBytes(),
-                  HardwareBuffer::HBL_DISCARD) );
+            HardwareBufferLockGuard indexLock(mIndexData->indexBuffer, HardwareBuffer::HBL_DISCARD);
+            ushort* pIdx = static_cast<ushort*>(indexLock.pData);
 
             for(
                 size_t idx, idxOff, bboard = 0;
@@ -827,8 +825,6 @@ namespace v1 {
                 pIdx[idx+5] = static_cast<unsigned short>(idxOff + 3);
 
             }
-
-            mIndexData->indexBuffer->unlock();
         }
 
         if( mHlmsDatablock && getMaterial().isNull() )
@@ -881,6 +877,13 @@ namespace v1 {
         mMainBuf.setNull();
         mMainBuffers.clear();
 
+        if( mHlmsDatablock && getMaterial().isNull() )
+        {
+            _setHlmsHashes( 0u, 0u );
+            mHlmsDatablock->_unlinkRenderable( this );
+            mHlmsDatablock = 0;
+        }
+
         mBuffersCreated = false;
     }
     //-----------------------------------------------------------------------
@@ -895,21 +898,24 @@ namespace v1 {
     //-----------------------------------------------------------------------
     void BillboardSet::setDatablock( HlmsDatablock *datablock )
     {
-        mMaterialName.clear();
-        mMaterialGroup.clear();
+        if( datablock->getCreator()->getType() != HLMS_LOW_LEVEL )
+        {
+            mMaterialName.clear();
+            mMaterialGroup.clear();
 
-        const String *fullDatablockName = datablock->getNameStr();
-        if( fullDatablockName )
-        {
-            mMaterialName = *fullDatablockName;
-        }
-        else
-        {
-            LogManager::getSingleton().logMessage(
-                        "Couldn't retrieve full material name of datablock '" +
-                        datablock->getName().getFriendlyText() +
-                        "' Billboard may not render as expected. "
-                        "May be the datablock is scheduled for deletion?" );
+            const String *fullDatablockName = datablock->getNameStr();
+            if( fullDatablockName )
+            {
+                mMaterialName = *fullDatablockName;
+            }
+            else
+            {
+                LogManager::getSingleton().logMessage(
+                            "Couldn't retrieve full material name of datablock '" +
+                            datablock->getName().getFriendlyText() +
+                            "' Billboard may not render as expected. "
+                            "May be the datablock is scheduled for deletion?" );
+            }
         }
 
         if( mBuffersCreated )
@@ -1036,11 +1042,11 @@ namespace v1 {
 
         if (bill.mOwnDimensions)
         {
-            sph.setRadius(max(bill.mWidth, bill.mHeight));
+            sph.setRadius(std::max(bill.mWidth, bill.mHeight));
         }
         else
         {
-            sph.setRadius(max(mDefaultWidth, mDefaultHeight));
+            sph.setRadius(std::max(mDefaultWidth, mDefaultHeight));
         }
 
         return cam->isVisible(sph);

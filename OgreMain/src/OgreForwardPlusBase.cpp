@@ -38,6 +38,8 @@ THE SOFTWARE.
 
 #include "OgreHlms.h"
 
+#include "OgreRoot.h"
+
 #include "OgreDecal.h"
 #include "OgreInternalCubemapProbe.h"
 
@@ -71,6 +73,11 @@ namespace Ogre
     }
     //-----------------------------------------------------------------------------------
     ForwardPlusBase::~ForwardPlusBase()
+    {
+        _releaseManualHardwareResources();
+    }
+    //-----------------------------------------------------------------------------------
+    void ForwardPlusBase::_releaseManualHardwareResources()
     {
         CachedGridVec::iterator itor = mCachedGrid.begin();
         CachedGridVec::iterator end  = mCachedGrid.end();
@@ -107,37 +114,7 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     void ForwardPlusBase::_changeRenderSystem( RenderSystem *newRs )
     {
-        CachedGridVec::iterator itor = mCachedGrid.begin();
-        CachedGridVec::iterator end  = mCachedGrid.end();
-
-        while( itor != end )
-        {
-            CachedGridBufferVec::iterator itBuf = itor->gridBuffers.begin();
-            CachedGridBufferVec::iterator enBuf = itor->gridBuffers.end();
-
-            while( itBuf != enBuf )
-            {
-                if( itBuf->gridBuffer )
-                {
-                    if( itBuf->gridBuffer->getMappingState() != MS_UNMAPPED )
-                        itBuf->gridBuffer->unmap( UO_UNMAP_ALL );
-                    mVaoManager->destroyTexBuffer( itBuf->gridBuffer );
-                    itBuf->gridBuffer = 0;
-                }
-
-                if( itBuf->globalLightListBuffer )
-                {
-                    if( itBuf->globalLightListBuffer->getMappingState() != MS_UNMAPPED )
-                        itBuf->globalLightListBuffer->unmap( UO_UNMAP_ALL );
-                    mVaoManager->destroyTexBuffer( itBuf->globalLightListBuffer );
-                    itBuf->globalLightListBuffer = 0;
-                }
-
-                ++itBuf;
-            }
-
-            ++itor;
-        }
+        _releaseManualHardwareResources();
 
         mVaoManager = 0;
 
@@ -207,6 +184,8 @@ namespace Ogre
         Matrix3 viewMatrix3;
         viewMatrix.extract3x3Matrix( viewMatrix3 );
 
+        const float invHeightLightProfileTex = Root::getSingleton().getLightProfilesInvHeight();
+
         float * RESTRICT_ALIAS lightData = reinterpret_cast<float * RESTRICT_ALIAS>(
                     globalLightListBuffer->map( 0, calculateBytesNeeded( numLights,
                                                                          numDecals,
@@ -254,12 +233,14 @@ namespace Ogre
             *lightData++ = attenQuadratic;
             *lightData++ = 1.0f / attenRange;
 
-            //vec3 lights[numLights].spotDirection;
+            const uint16 lightProfileIdx = light->getLightProfileIdx();
+
+            // vec3 lights[numLights].spotDirection;
             Vector3 spotDir = viewMatrix3 * light->getDerivedDirection();
             *lightData++ = spotDir.x;
             *lightData++ = spotDir.y;
             *lightData++ = spotDir.z;
-            ++lightData;
+            *lightData++ = ( static_cast<float>( lightProfileIdx ) + 0.5f ) * invHeightLightProfileTex;
 
             //vec3 lights[numLights].spotParams;
             Radian innerAngle = light->getSpotlightInnerAngle();

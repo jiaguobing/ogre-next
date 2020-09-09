@@ -53,6 +53,7 @@ namespace Ogre {
     const uint32 VisibilityFlags::RESERVED_VISIBILITY_FLAGS = ~(LAYER_SHADOW_CASTER|LAYER_VISIBILITY);
     uint32 MovableObject::msDefaultQueryFlags = 0xFFFFFFFF;
     uint32 MovableObject::msDefaultVisibilityFlags = 0xFFFFFFFF & (~LAYER_VISIBILITY);
+    uint32 MovableObject::msDefaultLightMask = 0xFFFFFFFF;
     //-----------------------------------------------------------------------
     MovableObject::MovableObject( IdType id, ObjectMemoryManager *objectMemoryManager,
                                   SceneManager *manager, uint8 renderQueueId )
@@ -69,7 +70,7 @@ namespace Ogre {
         , mGlobalIndex( -1 )
         , mParentIndex( -1 )
     {
-        assert(renderQueueId >= 0 && renderQueueId <= 254);
+        assert( renderQueueId <= 254 );
 
         if (Root::getSingletonPtr())
             mMinPixelSize = Root::getSingleton().getDefaultMinPixelSize();
@@ -351,7 +352,7 @@ namespace Ogre {
         const Vector3 derivedScale = mParentNode->_getDerivedScaleUpdated();
 
         float retVal = mObjectData.mLocalRadius[mObjectData.mIndex] *
-                        max( max( derivedScale.x, derivedScale.y ), derivedScale.z );
+                        std::max(std::max( derivedScale.x, derivedScale.y ), derivedScale.z );
         mObjectData.mWorldRadius[mObjectData.mIndex] = retVal;
 
         return retVal;
@@ -895,5 +896,13 @@ namespace Ogre {
         MovableObject* m = createInstanceImpl( id, objectMemoryManager, manager, params );
         return m;
     }
+    //-----------------------------------------------------------------------
+    //-----------------------------------------------------------------------
+    //-----------------------------------------------------------------------
+    MovableObject::Listener::~Listener() {}
+    //-----------------------------------------------------------------------
+    //-----------------------------------------------------------------------
+    //-----------------------------------------------------------------------
+    NullEntity::~NullEntity() {}
 }
 

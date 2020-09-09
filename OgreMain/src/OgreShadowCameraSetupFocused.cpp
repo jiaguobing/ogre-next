@@ -195,7 +195,7 @@ namespace Ogre
             texCam->setProjectionType( PT_ORTHOGRAPHIC );
             //Anything will do, there are no casters. But we must ensure depth of the receiver
             //doesn't become negative else a shadow square will appear (i.e. "the sun is below the floor")
-            const Real farDistance = Ogre::min( cam->getFarClipDistance(),
+            const Real farDistance = std::min( cam->getFarClipDistance(),
                                                 light->getShadowFarDistance() );
             texCam->setPosition( cam->getDerivedPosition() -
                                  light->getDerivedDirection() * farDistance );
@@ -211,7 +211,7 @@ namespace Ogre
         }
 
         const Node *lightNode = light->getParentNode();
-        const Real farDistance= Ogre::min( cam->getFarClipDistance(), light->getShadowFarDistance() );
+        const Real farDistance= std::min( cam->getFarClipDistance(), light->getShadowFarDistance() );
         const Quaternion scalarLightSpaceToWorld( lightNode->_getDerivedOrientation() );
         const Quaternion scalarWorldToLightSpace( scalarLightSpaceToWorld.Inverse() );
         ArrayQuaternion worldToLightSpace;
@@ -288,7 +288,14 @@ namespace Ogre
             vMax.z += 5.0f; // Backwards is towards +Z!
         }
 
-        vMin.z = Ogre::min( vMin.z, vMinCamFrustumLS.z );
+        vMin.z = std::min( vMin.z, vMinCamFrustumLS.z );
+
+        const RenderSystemCapabilities *caps = Root::getSingleton().getRenderSystem()->getCapabilities();
+        if( caps->hasCapability( RSC_DEPTH_CLAMP ) )
+        {
+            // We can only do shadow pancaking (increasing precision) if depth clamp is supported
+            vMax.z = std::max( vMax.z, vMaxCamFrustumLS.z );
+        }
 
         //Some padding
         vMax += 1.5f;
@@ -299,6 +306,16 @@ namespace Ogre
         texCam->setProjectionType( PT_ORTHOGRAPHIC );
         Vector3 shadowCameraPos = (vMin + vMax) * 0.5f;
         shadowCameraPos.z       = vMax.z + zPadding; // Backwards is towards +Z!
+
+        // Round local x/y position based on a world-space texel; this helps to reduce
+        // jittering caused by the projection moving with the camera
+        const Real worldTexelSizeX = ( texCam->getOrthoWindowWidth() ) / viewportRealSize.x;
+        const Real worldTexelSizeY = ( texCam->getOrthoWindowHeight() ) / viewportRealSize.y;
+
+        // snap to nearest texel
+        shadowCameraPos.x -= std::fmod( shadowCameraPos.x, worldTexelSizeX );
+        shadowCameraPos.y -= std::fmod( shadowCameraPos.y, worldTexelSizeY );
+
         //Go back from light space to world space
         shadowCameraPos = scalarLightSpaceToWorld * shadowCameraPos;
         texCam->setPosition( shadowCameraPos );

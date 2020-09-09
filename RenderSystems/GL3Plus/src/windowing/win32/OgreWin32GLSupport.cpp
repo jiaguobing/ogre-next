@@ -37,6 +37,8 @@
 #include "OgreWin32Window.h"
 #include <GL/wglext.h>
 
+#include <sstream>
+
 using namespace Ogre;
 
 namespace Ogre {

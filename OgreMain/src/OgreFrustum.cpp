@@ -36,9 +36,9 @@ THE SOFTWARE.
 #include "OgreCamera.h"
 #include "OgreHardwareBufferManager.h"
 #include "OgreHardwareVertexBuffer.h"
-#include "OgreMaterialManager.h"
 #include "OgreRenderSystem.h"
 #include "OgreMovablePlane.h"
+#include "OgreRenderOperation.h"
 
 #include "Math/Array/OgreArrayMatrixAf4x3.h"
 
@@ -658,7 +658,8 @@ namespace Ogre {
             // 1, 2, 3, 4 are the points on the near plane, top left first, clockwise
             // 5, 6, 7, 8 are the points on the far plane, top left first, clockwise
             v1::HardwareVertexBufferSharedPtr vbuf = mVertexData.vertexBufferBinding->getBuffer(0);
-            float* pFloat = static_cast<float*>(vbuf->lock(v1::HardwareBuffer::HBL_DISCARD));
+            v1::HardwareBufferLockGuard vertexLock(vbuf, v1::HardwareBuffer::HBL_DISCARD);
+            float* pFloat = static_cast<float*>(vertexLock.pData);
 
             // near plane (remember frustum is going in -Z direction)
             *pFloat++ = vpLeft;  *pFloat++ = vpTop;    *pFloat++ = -mNearDist;
@@ -712,9 +713,6 @@ namespace Ogre {
 
             *pFloat++ = vpLeft;  *pFloat++ = vpBottom; *pFloat++ = -mNearDist;
             *pFloat++ = farLeft;  *pFloat++ = farBottom; *pFloat++ = -farDist;
-
-
-            vbuf->unlock();
 
             mRecalcVertexData = false;
         }
@@ -1011,13 +1009,6 @@ namespace Ogre {
         return msMovableType;
     }
     //-----------------------------------------------------------------------
-#ifdef ENABLE_INCOMPATIBLE_OGRE_2_0
-    Real Frustum::getBoundingRadius(void) const
-    {
-        return (mFarDist == 0)? 100000 : mFarDist;
-    }
-#endif
-    //-----------------------------------------------------------------------
     void Frustum::getRenderOperation(v1::RenderOperation& op, bool casterPass)
     {
         updateVertexData();
@@ -1183,11 +1174,11 @@ namespace Ogre {
                     Real Px0 = -(Pz0 * Nz0) / Nx0;
                     if (Px0 > eyeSpacePos.x)
                     {
-                        *right = Ogre::min(*right, relx0.x);
+                        *right = std::min(*right, relx0.x);
                     }
                     else
                     {
-                        *left = Ogre::max(*left, relx0.x);
+                        *left = std::max(*left, relx0.x);
                     }
                 }
                 Real Pz1 = (Lxz - rsq) / (eyeSpacePos.z - ((Nz1 / Nx1) * eyeSpacePos.x));
@@ -1203,11 +1194,11 @@ namespace Ogre {
                     Real Px1 = -(Pz1 * Nz1) / Nx1;
                     if (Px1 > eyeSpacePos.x)
                     {
-                        *right = Ogre::min(*right, relx1.x);
+                        *right = std::min(*right, relx1.x);
                     }
                     else
                     {
-                        *left = Ogre::max(*left, relx1.x);
+                        *left = std::max(*left, relx1.x);
                     }
                 }
             }
@@ -1251,11 +1242,11 @@ namespace Ogre {
                     Real Py0 = -(Pz0 * Nz0) / Ny0;
                     if (Py0 > eyeSpacePos.y)
                     {
-                        *top = Ogre::min(*top, rely0.y);
+                        *top = std::min(*top, rely0.y);
                     }
                     else
                     {
-                        *bottom = Ogre::max(*bottom, rely0.y);
+                        *bottom = std::max(*bottom, rely0.y);
                     }
                 }
                 Real Pz1 = (Lyz - rsq) / (eyeSpacePos.z - ((Nz1 / Ny1) * eyeSpacePos.y));
@@ -1271,11 +1262,11 @@ namespace Ogre {
                     Real Py1 = -(Pz1 * Nz1) / Ny1;
                     if (Py1 > eyeSpacePos.y)
                     {
-                        *top = Ogre::min(*top, rely1.y);
+                        *top = std::min(*top, rely1.y);
                     }
                     else
                     {
-                        *bottom = Ogre::max(*bottom, rely1.y);
+                        *bottom = std::max(*bottom, rely1.y);
                     }
                 }
             }

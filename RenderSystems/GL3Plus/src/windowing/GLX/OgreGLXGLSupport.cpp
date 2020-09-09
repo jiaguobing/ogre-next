@@ -46,6 +46,8 @@
 #include <X11/Xlib.h>
 #include <X11/extensions/Xrandr.h>
 
+#include <sstream>
+
 static bool ctxErrorOccurred = false;
 static int ctxErrorHandler( Display *dpy, XErrorEvent *ev )
 {

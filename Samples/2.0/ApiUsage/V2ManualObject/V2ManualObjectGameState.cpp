@@ -8,6 +8,8 @@
 
 #include "OgreCamera.h"
 
+#include <sstream>
+
 using namespace Demo;
 
 namespace Demo
@@ -179,7 +181,7 @@ namespace Demo
             // ManualObject::begin and ManualObject::end
             mManualObject->beginUpdate(0);
 
-            fillBuffer(fmod(mAccumulator, 1.0f));
+            fillBuffer(std::fmod(mAccumulator, 1.0f));
 
             mManualObject->end();
         }

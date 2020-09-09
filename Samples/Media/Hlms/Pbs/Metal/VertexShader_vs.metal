@@ -32,8 +32,9 @@ struct PS_INPUT
 {
 @insertpiece( VStoPS_block )
 	float4 gl_Position [[position]];
-	@foreach( hlms_pso_clip_distances, n )
-		float gl_ClipDistance@n [[clip_distance]];
+
+	@property( hlms_pso_clip_distances )
+		float gl_ClipDistance [[clip_distance]] [@value( hlms_pso_clip_distances )];
 	@end
 };
 
@@ -54,9 +55,9 @@ vertex PS_INPUT main_metal
 	, device const float4 *worldMatBuf [[buffer(TEX_SLOT_START+0)]]
 	@property( hlms_pose )
 		@property( !hlms_pose_half )
-			, device const float4 *poseBuf	[[buffer(TEX_SLOT_START+4)]]
+			, device const float4 *poseBuf	[[buffer(TEX_SLOT_START+@value(poseBuf))]]
 		@else
-			, device const half4 *poseBuf	[[buffer(TEX_SLOT_START+4)]]
+			, device const half4 *poseBuf	[[buffer(TEX_SLOT_START+@value(poseBuf))]]
 		@end
 	@end
 	@property( hlms_vertex_id )

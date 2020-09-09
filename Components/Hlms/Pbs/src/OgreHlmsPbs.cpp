@@ -46,12 +46,15 @@ THE SOFTWARE.
 #include "Cubemaps/OgreParallaxCorrectedCubemap.h"
 #include "OgreIrradianceVolume.h"
 #include "Vct/OgreVctLighting.h"
+#include "IrradianceField/OgreIrradianceField.h"
 
 #include "OgreSceneManager.h"
+#include "OgreRenderQueue.h"
 #include "Compositor/OgreCompositorShadowNode.h"
 #include "Vao/OgreVaoManager.h"
 #include "Vao/OgreConstBufferPacked.h"
 #include "Vao/OgreTexBufferPacked.h"
+#include "Vao/OgreVertexArrayObject.h"
 
 #include "CommandBuffer/OgreCommandBuffer.h"
 #include "CommandBuffer/OgreCbTexture.h"
@@ -73,17 +76,23 @@ THE SOFTWARE.
 #include "OgreLogManager.h"
 #include "OgreProfiler.h"
 
+#define TODO_irradianceField_samplerblock
+
 namespace Ogre
 {
+    const IdString PbsProperty::useLightBuffers   = IdString("use_light_buffers");
+
     const IdString PbsProperty::HwGammaRead       = IdString( "hw_gamma_read" );
     const IdString PbsProperty::HwGammaWrite      = IdString( "hw_gamma_write" );
     const IdString PbsProperty::MaterialsPerBuffer= IdString( "materials_per_buffer" );
     const IdString PbsProperty::LowerGpuOverhead  = IdString( "lower_gpu_overhead" );
     const IdString PbsProperty::DebugPssmSplits   = IdString( "debug_pssm_splits" );
+    const IdString PbsProperty::PerceptualRoughness=IdString( "perceptual_roughness" );
     const IdString PbsProperty::HasPlanarReflections=IdString( "has_planar_reflections" );
 
     const IdString PbsProperty::NumTextures     = IdString( "num_textures" );
     const IdString PbsProperty::NumSamplers     = IdString( "num_samplers" );
+    const IdString PbsProperty::DiffuseMapGrayscale = IdString( "diffuse_map_grayscale" );
     const char *PbsProperty::DiffuseMap         = "diffuse_map";
     const char *PbsProperty::NormalMapTex       = "normal_map_tex";
     const char *PbsProperty::SpecularMap        = "specular_map";
@@ -114,6 +123,7 @@ namespace Ogre
     const IdString PbsProperty::NormalLa              = IdString( "normal_la" );
     const IdString PbsProperty::NormalRgUnorm        = IdString( "normal_rg_unorm" );
     const IdString PbsProperty::NormalRgSnorm        = IdString( "normal_rg_snorm" );
+    const IdString PbsProperty::NormalBc3Unorm       = IdString( "normal_bc3_unorm" );
 
     const IdString PbsProperty::NormalWeight          = IdString( "normal_weight" );
     const IdString PbsProperty::NormalWeightTex       = IdString( "normal_weight_tex" );
@@ -154,14 +164,17 @@ namespace Ogre
     const IdString PbsProperty::EmissiveConstant  = IdString( "emissive_constant" );
     const IdString PbsProperty::EmissiveAsLightmap= IdString( "emissive_as_lightmap" );
 
-    const IdString PbsProperty::Pcf3x3            = IdString( "pcf_3x3" );
-    const IdString PbsProperty::Pcf4x4            = IdString( "pcf_4x4" );
+    const IdString PbsProperty::Pcf               = IdString( "pcf" );
     const IdString PbsProperty::PcfIterations     = IdString( "pcf_iterations" );
     const IdString PbsProperty::ExponentialShadowMaps= IdString( "exponential_shadow_maps" );
 
     const IdString PbsProperty::EnvMapScale       = IdString( "envmap_scale" );
+    const IdString PbsProperty::LightProfilesTexture= IdString( "light_profiles_texture" );
+    const IdString PbsProperty::LtcTextureAvailable= IdString( "ltc_texture_available" );
     const IdString PbsProperty::AmbientFixed      = IdString( "ambient_fixed" );
     const IdString PbsProperty::AmbientHemisphere = IdString( "ambient_hemisphere" );
+    const IdString PbsProperty::AmbientSh         = IdString( "ambient_sh" );
+    const IdString PbsProperty::AmbientShMonochrome=IdString( "ambient_sh_monochrome" );
     const IdString PbsProperty::TargetEnvprobeMap = IdString( "target_envprobe_map" );
     const IdString PbsProperty::ParallaxCorrectCubemaps = IdString( "parallax_correct_cubemaps" );
     const IdString PbsProperty::UseParallaxCorrectCubemaps= IdString( "use_parallax_correct_cubemaps" );
@@ -171,11 +184,14 @@ namespace Ogre
     const IdString PbsProperty::IrradianceVolumes = IdString( "irradiance_volumes" );
     const IdString PbsProperty::VctNumProbes      = IdString( "vct_num_probes" );
     const IdString PbsProperty::VctConeDirs       = IdString( "vct_cone_dirs" );
+    const IdString PbsProperty::VctDisableDiffuse = IdString( "vct_disable_diffuse" );
     const IdString PbsProperty::VctDisableSpecular= IdString( "vct_disable_specular" );
     const IdString PbsProperty::VctAnisotropic    = IdString( "vct_anisotropic" );
     const IdString PbsProperty::VctEnableSpecularSdfQuality=IdString("vct_enable_specular_sdf_quality");
     const IdString PbsProperty::VctAmbientSphere  = IdString("vct_ambient_hemisphere");
+    const IdString PbsProperty::IrradianceField   = IdString("irradiance_field");
     const IdString PbsProperty::ObbRestraintApprox= IdString( "obb_restraint_approx" );
+
     const IdString PbsProperty::ObbRestraintLtc   = IdString( "obb_restraint_ltc" );
 
     const IdString PbsProperty::BrdfDefault       = IdString( "BRDF_Default" );
@@ -249,11 +265,16 @@ namespace Ogre
         mCurrentPassBuffer( 0 ),
         mGridBuffer( 0 ),
         mGlobalLightListBuffer( 0 ),
+        mMaxSpecIblMipmap( 1.0f ),
         mTexUnitSlotStart( 0 ),
         mPrePassTextures( 0 ),
+        mDepthTexture( 0 ),
         mSsrTexture( 0 ),
+        mDepthTextureNoMsaa( 0 ),
+        mRefractionsTexture( 0 ),
         mIrradianceVolume( 0 ),
         mVctLighting( 0 ),
+        mIrradianceField( 0 ),
 #ifdef OGRE_BUILD_COMPONENT_PLANAR_REFLECTIONS
         mPlanarReflections( 0 ),
         mPlanarReflectionsSamplerblock( 0 ),
@@ -263,12 +284,13 @@ namespace Ogre
         mAreaLightMasks( 0 ),
         mAreaLightMasksSamplerblock( 0 ),
         mUsingAreaLightMasks( false ),
+        mLightProfilesTexture( 0 ),
         mSkipRequestSlotInChangeRS( false ),
-        mUsingLtcMatrix( false ),
         mLtcMatrixTexture( 0 ),
         mDecalsDiffuseMergedEmissive( false ),
         mDecalsSamplerblock( 0 ),
         mLastBoundPool( 0 ),
+        mConstantBiasScale( 0.1f ),
         mHasSeparateSamplers( 0 ),
         mLastDescTexture( 0 ),
         mLastDescSampler( 0 ),
@@ -278,11 +300,14 @@ namespace Ogre
 #endif
         mSetupWorldMatBuf( true ),
         mDebugPssmSplits( false ),
+        mPerceptualRoughness( true ),
+        mAutoSpecIblMaxMipmap( true ),
         mVctFullConeCount( false ),
 #if OGRE_ENABLE_LIGHT_OBB_RESTRAINT
         mUseObbRestraintAreaApprox( false ),
         mUseObbRestraintAreaLtc( false ),
 #endif
+        mUseLightBuffers( false ),
         mShadowFilter( PCF_3x3 ),
         mEsmK( 600u ),
         mAmbientLightMode( AmbientAuto )
@@ -443,9 +468,6 @@ namespace Ogre
         if( mSetupWorldMatBuf )
             vsParams->setNamedConstant( "worldMatBuf", 0 );
 
-        if( queuedRenderable.renderable->getNumPoses() > 0 )
-            vsParams->setNamedConstant( "poseBuf", 4 );
-        
         mListener->shaderCacheEntryCreated( mShaderProfile, retVal, passCache,
                                             mSetProperties, queuedRenderable );
 
@@ -599,6 +621,14 @@ namespace Ogre
         if( datablock->getReceiveShadows() )
             setProperty( PbsProperty::ReceiveShadows, 1 );
 
+        if( datablock->mTransparencyMode == HlmsPbsDatablock::Refractive )
+        {
+            setProperty( HlmsBaseProp::ScreenSpaceRefractions, 1 );
+            setProperty( HlmsBaseProp::VPos, 1 );
+            setProperty( HlmsBaseProp::ScreenPosInt, 1 );
+            setProperty( HlmsBaseProp::ScreenPosUv, 1 );
+        }
+
         uint32 brdf = datablock->getBrdf();
         if( (brdf & PbsBrdf::BRDF_MASK) == PbsBrdf::Default )
         {
@@ -679,6 +709,12 @@ namespace Ogre
             setTextureProperty( PbsProperty::EnvProbeMap,   datablock,  PBSM_REFLECTION );
             setTextureProperty( PbsProperty::DetailWeightMap,datablock, PBSM_DETAIL_WEIGHT );
 
+            if( getProperty( PbsProperty::DiffuseMap ) )
+            {
+                if( datablock->getUseDiffuseMapAsGrayscale() )
+                    setProperty( PbsProperty::DiffuseMapGrayscale, 1 );
+            }
+
             //Save the name of the cubemap for hazard prevention
             //(don't sample the cubemap and render to it at the same time).
             const TextureGpu *reflectionTexture = datablock->getTexture( PBSM_REFLECTION );
@@ -751,8 +787,8 @@ namespace Ogre
             // NB if texture has not loaded yet, getPixelFormat will return PFG_UNKNOWN and so
             // isSigned may be incorrect. However calculateHasFor will be called again when it
             // has loaded, so just assume default for now.
-            const bool isSigned = PixelFormatGpuUtils::isSigned(
-                                      datablockNormalMaps[0]->getPixelFormat() );
+            PixelFormatGpu nmPixelFormat = datablockNormalMaps[0]->getPixelFormat();
+            const bool isSigned = PixelFormatGpuUtils::isSigned( nmPixelFormat );
             if (isSigned)
             {
                 setProperty( PbsProperty::NormalSamplingFormat, PbsProperty::NormalRgSnorm.mHash );
@@ -760,8 +796,16 @@ namespace Ogre
             }
             else
             {
-                setProperty( PbsProperty::NormalSamplingFormat, PbsProperty::NormalRgUnorm.mHash );
-                setProperty( PbsProperty::NormalRgUnorm, PbsProperty::NormalRgUnorm.mHash );
+                if( nmPixelFormat != PFG_BC3_UNORM )
+                {
+                    setProperty( PbsProperty::NormalSamplingFormat, PbsProperty::NormalRgUnorm.mHash );
+                    setProperty( PbsProperty::NormalRgUnorm, PbsProperty::NormalRgUnorm.mHash );
+                }
+                else
+                {
+                    setProperty( PbsProperty::NormalSamplingFormat, PbsProperty::NormalBc3Unorm.mHash );
+                    setProperty( PbsProperty::NormalBc3Unorm, PbsProperty::NormalBc3Unorm.mHash );
+                }
             }
             //Reserved for supporting LA textures in GLES2.
 //            else
@@ -791,8 +835,11 @@ namespace Ogre
             }
         }
 
-        if( datablock->mUseAlphaFromTextures && datablock->mBlendblock[0]->mIsTransparent &&
-            (getProperty( PbsProperty::DiffuseMap ) || getProperty( PbsProperty::DetailMapsDiffuse )) )
+        if( datablock->mUseAlphaFromTextures &&
+            ( datablock->mBlendblock[0]->isAutoTransparent() ||  //
+              datablock->mTransparencyMode == HlmsPbsDatablock::Refractive ) &&
+            ( getProperty( PbsProperty::DiffuseMap ) ||  //
+              getProperty( PbsProperty::DetailMapsDiffuse ) ) )
         {
             setProperty( PbsProperty::UseTextureAlpha, 1 );
 
@@ -941,36 +988,44 @@ namespace Ogre
                             "Object with manual cubemap probe but "
                             "setParallaxCorrectedCubemap() was not called!" );
 
-        if( getProperty( HlmsBaseProp::LightsSpot ) ||
-            getProperty( HlmsBaseProp::UseSsr ) ||
-            getProperty( HlmsBaseProp::ForwardPlus ) ||
-            getProperty( PbsProperty::UseEnvProbeMap ) ||
-            getProperty( PbsProperty::UsePlanarReflections ) ||
-            getProperty( PbsProperty::AmbientHemisphere ) ||
-            getProperty( HlmsBaseProp::LightsAreaApprox ) ||
-            getProperty( HlmsBaseProp::LightsAreaLtc ) ||
-            hasVct )
-        {
-            setProperty( PbsProperty::NeedsViewDir, 1 );
-        }
+        const bool hasIrradianceField = getProperty( PbsProperty::IrradianceField ) != 0;
+
+        bool bNeedsEnvBrdf = false;
 
         if( getProperty( HlmsBaseProp::UseSsr ) ||
             getProperty( PbsProperty::UseEnvProbeMap ) ||
             getProperty( PbsProperty::UsePlanarReflections ) ||
             getProperty( PbsProperty::AmbientHemisphere ) ||
+            getProperty( PbsProperty::AmbientSh ) ||
             getProperty( PbsProperty::EnableCubemapsAuto ) ||
+            hasIrradianceField ||
             hasVct )
         {
             setProperty( PbsProperty::NeedsReflDir, 1 );
             setProperty( PbsProperty::NeedsEnvBrdf, 1 );
+            bNeedsEnvBrdf = true;
+        }
+
+        if( getProperty( HlmsBaseProp::LightsSpot ) ||
+            getProperty( HlmsBaseProp::ForwardPlus ) ||
+            getProperty( HlmsBaseProp::LightsAreaApprox ) ||
+            getProperty( HlmsBaseProp::LightsAreaLtc ) ||
+            bNeedsEnvBrdf ||
+            hasIrradianceField ||
+            hasVct )
+        {
+            setProperty( PbsProperty::NeedsViewDir, 1 );
         }
 
         int32 texUnit = mReservedTexSlots;
+
         if( getProperty( HlmsBaseProp::ForwardPlus ) )
         {
             setTextureReg( PixelShader, "f3dGrid", texUnit++ );
             setTextureReg( PixelShader, "f3dLightList", texUnit++ );
         }
+
+        bool depthTextureDefined = false;
 
         if( getProperty( HlmsBaseProp::UsePrePass ) )
         {
@@ -978,11 +1033,38 @@ namespace Ogre
             setTextureReg( PixelShader, "gBuf_shadowRoughness", texUnit++ );
 
             if( getProperty( HlmsBaseProp::UsePrePassMsaa ) )
+            {
                 setTextureReg( PixelShader, "gBuf_depthTexture", texUnit++ );
+                depthTextureDefined = true;
+            }
+            else
+            {
+                ++texUnit;
+            }
 
             if( getProperty( HlmsBaseProp::UseSsr ) )
                 setTextureReg( PixelShader, "ssrTexture", texUnit++ );
         }
+
+        const bool refractionsAvailable = getProperty( HlmsBaseProp::SsRefractionsAvailable );
+        if( refractionsAvailable )
+        {
+            if( !depthTextureDefined && !getProperty( HlmsBaseProp::UsePrePassMsaa ) )
+            {
+                setTextureReg( PixelShader, "gBuf_depthTexture", texUnit++ );
+                depthTextureDefined = true;
+            }
+            else
+            {
+                setTextureReg( PixelShader, "depthTextureNoMsaa", texUnit++ );
+            }
+            setTextureReg( PixelShader, "refractionMap", texUnit++ );
+        }
+
+        OGRE_ASSERT_HIGH(
+            ( refractionsAvailable || getProperty( HlmsBaseProp::ScreenSpaceRefractions ) == 0 ) &&
+            "A material that uses refractions is used in a pass where refractions are unavailable! See "
+            "Samples/2.0/ApiUsage/Refractions for which pass refractions must be rendered in" );
 
         if( getProperty( PbsProperty::IrradianceVolumes ) &&
             getProperty( HlmsBaseProp::ShadowCaster ) == 0 )
@@ -1001,11 +1083,28 @@ namespace Ogre
             }
         }
 
+        if( getProperty( PbsProperty::IrradianceField ) )
+        {
+            setTextureReg( PixelShader, "ifdColour", texUnit++ );
+            setTextureReg( PixelShader, "ifdDepth", texUnit++ );
+        }
+
         if( getProperty( HlmsBaseProp::LightsAreaTexMask ) > 0 )
             setTextureReg( PixelShader, "areaLightMasks", texUnit++ );
 
-        if( getProperty( HlmsBaseProp::LightsAreaLtc ) > 0 )
-            setTextureReg( PixelShader, "ltcMatrix", texUnit++ );
+        if( getProperty( PbsProperty::LightProfilesTexture ) > 0 )
+            setTextureReg( PixelShader, "lightProfiles", texUnit++ );
+
+        if( getProperty( PbsProperty::LtcTextureAvailable ) )
+        {
+            if( bNeedsEnvBrdf || getProperty( HlmsBaseProp::LightsAreaLtc ) > 0 )
+                setTextureReg( PixelShader, "ltcMatrix", texUnit++ );
+            else
+            {
+                // Always occupy the texture unit
+                ++texUnit;
+            }
+        }
 
         if( getProperty( HlmsBaseProp::EnableDecals ) )
         {
@@ -1086,6 +1185,9 @@ namespace Ogre
             else
                 setTextureReg( PixelShader, "texEnvProbeMap", texUnit++ );
         }
+
+        if( getProperty( HlmsBaseProp::Pose ) )
+            setTextureReg( VertexShader, "poseBuf", texUnit++ );
 
         //This is a regular property!
         setProperty( "samplerStateStart", samplerStateStart );
@@ -1171,13 +1273,23 @@ namespace Ogre
 
             if( mShadowFilter == PCF_3x3 )
             {
-                setProperty( PbsProperty::Pcf3x3, 1 );
+                setProperty( PbsProperty::Pcf, 3 );
                 setProperty( PbsProperty::PcfIterations, 4 );
             }
             else if( mShadowFilter == PCF_4x4 )
             {
-                setProperty( PbsProperty::Pcf4x4, 1 );
+                setProperty( PbsProperty::Pcf, 4 );
                 setProperty( PbsProperty::PcfIterations, 9 );
+            }
+            else if( mShadowFilter == PCF_5x5 )
+            {
+                setProperty( PbsProperty::Pcf, 5 );
+                setProperty( PbsProperty::PcfIterations, 16 );
+            }
+            else if( mShadowFilter == PCF_6x6 )
+            {
+                setProperty( PbsProperty::Pcf, 6 );
+                setProperty( PbsProperty::PcfIterations, 25 );
             }
             else if( mShadowFilter == ExponentialShadowMaps )
             {
@@ -1216,9 +1328,17 @@ namespace Ogre
                     "Prepass + MSAA must specify an MSAA depth texture" );
         }
 
+        mDepthTexture = sceneManager->getCurrentPrePassDepthTexture();
+        mDepthTextureNoMsaa = sceneManager->getCurrentPassDepthTextureNoMsaa();
+
         mSsrTexture = sceneManager->getCurrentSsrTexture();
         assert( !(mPrePassTextures->empty() && mSsrTexture) &&
                 "Using SSR *requires* to be in prepass mode" );
+
+        mRefractionsTexture = sceneManager->getCurrentRefractionsTexture();
+
+        OGRE_ASSERT_LOW( ( !mRefractionsTexture || ( mRefractionsTexture && mDepthTextureNoMsaa ) ) &&
+                         "Refractions texture requires a depth texture!" );
 
         const bool vctNeedsAmbientHemi = !casterPass && mVctLighting &&
                                          mVctLighting->needsAmbientHemisphere();
@@ -1245,6 +1365,13 @@ namespace Ogre
 
         if( !casterPass )
         {
+            if( mPerceptualRoughness )
+                setProperty( PbsProperty::PerceptualRoughness, 1 );
+            if( mLightProfilesTexture )
+                setProperty( PbsProperty::LightProfilesTexture, 1 );
+            if( mLtcMatrixTexture )
+                setProperty( PbsProperty::LtcTextureAvailable, 1 );
+
             if( mAmbientLightMode == AmbientAuto )
             {
                 if( upperHemisphere == lowerHemisphere )
@@ -1264,6 +1391,12 @@ namespace Ogre
                 setProperty( PbsProperty::AmbientFixed, 1 );
             if( ambientMode == AmbientHemisphere )
                 setProperty( PbsProperty::AmbientHemisphere, 1 );
+            if( ambientMode == AmbientSh || ambientMode == AmbientShMonochrome )
+            {
+                setProperty( PbsProperty::AmbientSh, 1 );
+                if( ambientMode == AmbientShMonochrome )
+                    setProperty( PbsProperty::AmbientShMonochrome, 1 );
+            }
 
             if( envMapScale != 1.0f )
                 setProperty( PbsProperty::EnvMapScale, 1 );
@@ -1310,6 +1443,12 @@ namespace Ogre
                     setProperty( PbsProperty::VctDisableSpecular, 1 );
             }
 
+            if( mIrradianceField )
+            {
+                setProperty( PbsProperty::IrradianceField, 1 );
+                setProperty( PbsProperty::VctDisableDiffuse, 1 );
+            }
+
             if( mIrradianceVolume )
                 setProperty( PbsProperty::IrradianceVolumes, 1 );
 
@@ -1352,6 +1491,9 @@ namespace Ogre
         HlmsCache retVal = Hlms::preparePassHashBase( shadowNode, casterPass,
                                                       dualParaboloid, sceneManager );
 
+        if( mUseLightBuffers )
+            setProperty( PbsProperty::useLightBuffers, 1 );
+
         const RenderSystemCapabilities *capabilities = mRenderSystem->getCapabilities();
         setProperty( PbsProperty::HwGammaRead, capabilities->hasCapability( RSC_HW_GAMMA ) );
 //        setProperty( PbsProperty::HwGammaWrite, capabilities->hasCapability( RSC_HW_GAMMA ) &&
@@ -1360,6 +1502,7 @@ namespace Ogre
         retVal.setProperties = mSetProperties;
 
         CamerasInProgress cameras = sceneManager->getCamerasInProgress();
+        mConstantBiasScale = cameras.renderingCamera->_getConstantBiasScale();
         Matrix4 viewMatrix = cameras.renderingCamera->getVrViewMatrix( 0 );
 
         Matrix4 projectionMatrix = cameras.renderingCamera->getProjectionMatrixWithRSDepth();
@@ -1398,6 +1541,9 @@ namespace Ogre
 
         //mat4 viewProj;
         size_t mapSize = 16 * 4;
+        size_t mapSizeLight0 = 0;
+        size_t mapSizeLight1 = 0;
+        size_t mapSizeLight2 = 0;
 
         mGridBuffer             = 0;
         mGlobalLightListBuffer  = 0;
@@ -1439,14 +1585,24 @@ namespace Ogre
             if( mVctLighting )
                 mapSize += mVctLighting->getConstBufferSize();
 
+            if( mIrradianceField )
+                mapSize += mIrradianceField->getConstBufferSize();
+
             //mat4 view + mat4 shadowRcv[numShadowMapLights].texViewProj +
             //              vec2 shadowRcv[numShadowMapLights].shadowDepthRange +
-            //              vec2 padding +
+            //              float normalOffsetBias +
+            //              float padding +
             //              vec4 shadowRcv[numShadowMapLights].invShadowMapSize +
             //mat3 invViewMatCubemap (upgraded to three vec4)
             mapSize += ( 16 + (16 + 2 + 2 + 4) * numShadowMapLights + 4 * 3 ) * 4;
 
-            //float4 pccVctMinDistance_invPccVctInvDistance_rightEyePixelStartX_unused;
+            //float4 pccVctMinDistance_invPccVctInvDistance_rightEyePixelStartX_envMapNumMipmaps;
+            mapSize += 4u * 4u;
+
+            //float4 aspectRatio_planarReflNumMips_unused2;
+            mapSize += 4u * 4u;
+
+            //float2 invWindowRes + float2 windowResolution
             mapSize += 4u * 4u;
 
             //vec4 shadowRcv[numShadowMapLights].texViewZRow
@@ -1456,10 +1612,6 @@ namespace Ogre
             //vec4 pixelOffset2x
             if( passSceneDef && passSceneDef->mUvBakingSet != 0xFF )
                 mapSize += 4u * 4u;
-
-            //float windowHeight + padding
-            if( !mPrePassTextures->empty() )
-                mapSize += 4 * 4;
 
             //vec3 ambientUpperHemi + float envMapScale
             if( ambientMode == AmbientFixed || ambientMode == AmbientHemisphere ||
@@ -1473,6 +1625,14 @@ namespace Ogre
             {
                 mapSize += 8 * 4;
             }
+
+            // float4 sh0 - sh6;
+            if( ambientMode == AmbientSh )
+                mapSize += 7u * 4u * 4u;
+
+            // float4 sh0 - sh2;
+            if( ambientMode == AmbientShMonochrome )
+                mapSize += 3u * 4u * 4u;
 
             //vec3 irradianceOrigin + float maxPower +
             //vec3 irradianceSize + float invHeight + mat4 invView
@@ -1502,16 +1662,16 @@ namespace Ogre
             if( numShadowMapLights > 0 )
             {
                 //Six variables * 4 (padded vec3) * 4 (bytes) * numLights
-                mapSize += ( 6 * 4 * 4 ) * numLights;
+                mapSizeLight0 += ( 6 * 4 * 4 ) * numLights;
             }
             else
             {
                 //Three variables * 4 (padded vec3) * 4 (bytes) * numDirectionalLights
-                mapSize += ( 3 * 4 * 4 ) * numDirectionalLights;
+                mapSizeLight0 += ( 3 * 4 * 4 ) * numDirectionalLights;
             }
 
-            mapSize += ( numAreaApproxFloat4Vars * 4 * 4 ) * numAreaApproxLights;
-            mapSize += ( numAreaLtcFloat4Vars * 4 * 4 ) * numAreaLtcLights;
+            mapSizeLight1 += ( numAreaApproxFloat4Vars * 4 * 4 ) * numAreaApproxLights;
+            mapSizeLight2 += ( numAreaLtcFloat4Vars * 4 * 4 ) * numAreaLtcLights;
         }
         else
         {
@@ -1545,9 +1705,22 @@ namespace Ogre
                                                  sceneManager );
 
         //Arbitrary 16kb (minimum supported by GL), should be enough.
-        const size_t maxBufferSize = 16 * 1024;
+        const size_t maxBufferSizeRaw = 16 * 1024;
+        const size_t maxBufferSizeLight0 = (6 * 4 * 4) * 32; // 32 forward lights should be enough
+        const size_t maxBufferSizeLight1 = (numAreaApproxFloat4Vars * 4 * 4) * 8; // 8 area lights
+        const size_t maxBufferSizeLight2 = (numAreaLtcFloat4Vars * 4 * 4) * 8; // 8 Ltc area lights
 
-        assert( mapSize <= maxBufferSize );
+        assert( mapSize <= maxBufferSizeRaw );
+        assert( mapSizeLight0 <= maxBufferSizeLight0);
+        assert( mapSizeLight1 <= maxBufferSizeLight1);
+        assert( mapSizeLight2 <= maxBufferSizeLight2);
+
+        size_t maxBufferSize = maxBufferSizeRaw;
+        if( !mUseLightBuffers )
+        {
+            mapSize += mapSizeLight0 + mapSizeLight1 + mapSizeLight2;
+            maxBufferSize += maxBufferSizeLight0 + maxBufferSizeLight1 + maxBufferSizeLight2;
+        }
 
         if( mCurrentPassBuffer >= mPassBuffers.size() )
         {
@@ -1555,11 +1728,47 @@ namespace Ogre
                                                                     0, false ) );
         }
 
+        if (mUseLightBuffers)
+        {
+            while( mCurrentPassBuffer >= mLight0Buffers.size() )
+            {
+                mLight0Buffers.push_back( mVaoManager->createConstBuffer(
+                    maxBufferSizeLight0, BT_DYNAMIC_PERSISTENT, 0, false ) );
+                mLight1Buffers.push_back( mVaoManager->createConstBuffer(
+                    maxBufferSizeLight1, BT_DYNAMIC_PERSISTENT, 0, false ) );
+                mLight2Buffers.push_back( mVaoManager->createConstBuffer(
+                    maxBufferSizeLight2, BT_DYNAMIC_PERSISTENT, 0, false ) );
+            }
+        }
+
         ConstBufferPacked *passBuffer = mPassBuffers[mCurrentPassBuffer++];
         float *passBufferPtr = reinterpret_cast<float*>( passBuffer->map( 0, mapSize ) );
 
+        ConstBufferPacked *light0Buffer = 0;
+        ConstBufferPacked *light1Buffer = 0;
+        ConstBufferPacked *light2Buffer = 0;
+        float *light0BufferPtr = 0;
+        float *light1BufferPtr = 0;
+        float *light2BufferPtr = 0;
+        if( mUseLightBuffers )
+        {
+            light0Buffer = mLight0Buffers[mCurrentPassBuffer - 1u];
+            light1Buffer = mLight1Buffers[mCurrentPassBuffer - 1u];
+            light2Buffer = mLight2Buffers[mCurrentPassBuffer - 1u];
+
+            if( mapSizeLight0 > 0 )
+                light0BufferPtr = reinterpret_cast<float *>( light0Buffer->map( 0, mapSizeLight0 ) );
+            if( mapSizeLight1 > 0 )
+                light1BufferPtr = reinterpret_cast<float *>( light1Buffer->map( 0, mapSizeLight1 ) );
+            if( mapSizeLight2 > 0 )
+                light2BufferPtr = reinterpret_cast<float *>( light2Buffer->map( 0, mapSizeLight2 ) );
+        }
+
 #ifndef NDEBUG
         const float *startupPtr = passBufferPtr;
+        const float *light0startupPtr = light0BufferPtr;
+        const float *light1startupPtr = light1BufferPtr;
+        const float *light2startupPtr = light2BufferPtr;
 #endif
 
         //---------------------------------------------------------------------------
@@ -1703,7 +1912,7 @@ namespace Ogre
                     *passBufferPtr++ = fNear;
                 }
                 *passBufferPtr++ = 1.0f / depthRange;
-                *passBufferPtr++ = 0.0f;
+                *passBufferPtr++ = shadowNode->getNormalOffsetBias( (size_t)shadowMapTexIdx );
                 *passBufferPtr++ = 0.0f; //Padding
 
 
@@ -1761,19 +1970,38 @@ namespace Ogre
                     ++passBufferPtr;
             }
 
-            //float4 pccVctMinDistance_invPccVctInvDistance_rightEyePixelStartX_unused
+            //float4 pccVctMinDistance_invPccVctInvDistance_rightEyePixelStartX_envMapNumMipmaps
             *passBufferPtr++ = mPccVctMinDistance;
             *passBufferPtr++ = mInvPccVctInvDistance;
             *passBufferPtr++ = currViewports[1].getActualLeft();
-            *passBufferPtr++ = 0.0f;
+            *passBufferPtr++ = mMaxSpecIblMipmap;
 
-            if( !mPrePassTextures->empty() )
             {
-                //vec4 windowHeight
+                const float windowWidth = renderTarget->getWidth();
                 const float windowHeight = renderTarget->getHeight();
-                *passBufferPtr++ = windowHeight;
-                *passBufferPtr++ = windowHeight;
-                *passBufferPtr++ = windowHeight;
+
+                //float4 aspectRatio_planarReflNumMips_unused2
+                *passBufferPtr++ = windowWidth / windowHeight;
+#ifdef OGRE_BUILD_COMPONENT_PLANAR_REFLECTIONS
+                if( mPlanarReflections )
+                {
+                    // Assume all planar refl. probes have the same num. of mipmaps
+                    *passBufferPtr++ = mPlanarReflections->getMaxNumMipmaps();
+                }
+                else
+                {
+                    *passBufferPtr++ = 0.0f;
+                }
+#else
+                *passBufferPtr++ = 0.0f;
+#endif
+                *passBufferPtr++ = 0.0f;
+                *passBufferPtr++ = 0.0f;
+
+                //float2 invWindowRes + float2 windowResolution;
+                *passBufferPtr++ = 1.0f / windowWidth;
+                *passBufferPtr++ = 1.0f / windowHeight;
+                *passBufferPtr++ = windowWidth;
                 *passBufferPtr++ = windowHeight;
             }
 
@@ -1801,6 +2029,30 @@ namespace Ogre
                 *passBufferPtr++ = static_cast<float>( hemisphereDir.y );
                 *passBufferPtr++ = static_cast<float>( hemisphereDir.z );
                 *passBufferPtr++ = 1.0f;
+            }
+
+            // float4 sh0 - sh6;
+            if( ambientMode == AmbientSh )
+            {
+                const float *ambientSphericalHarmonics = sceneManager->getSphericalHarmonics();
+                for( size_t i = 0u; i < 9u; ++i )
+                {
+                    *passBufferPtr++ = ambientSphericalHarmonics[i * 3u + 0u];
+                    *passBufferPtr++ = ambientSphericalHarmonics[i * 3u + 1u];
+                    *passBufferPtr++ = ambientSphericalHarmonics[i * 3u + 2u];
+                }
+                *passBufferPtr++ = 0.0f; // Unused / padding
+            }
+
+            // float4 sh0 - sh2;
+            if( ambientMode == AmbientShMonochrome )
+            {
+                const float *ambientSphericalHarmonics = sceneManager->getSphericalHarmonics();
+                for( size_t i = 0u; i < 9u; ++i )
+                    *passBufferPtr++ = ambientSphericalHarmonics[i * 3u + 0u];
+                *passBufferPtr++ = 0.0f; // Unused / padding
+                *passBufferPtr++ = 0.0f; // Unused / padding
+                *passBufferPtr++ = 0.0f; // Unused / padding
             }
 
             if( mIrradianceVolume )
@@ -1857,8 +2109,15 @@ namespace Ogre
             passBufferPtr += alignToNextMultiple( numPssmSplits + numPssmBlendsAndFade, 4 ) -
                              ( numPssmSplits + numPssmBlendsAndFade );
 
+            if( !mUseLightBuffers )
+                light0BufferPtr = passBufferPtr;
+
             if( numShadowMapLights > 0 )
             {
+                float invHeightLightProfileTex = 1.0f;
+                if( mLightProfilesTexture )
+                    invHeightLightProfileTex = 1.0f / mLightProfilesTexture->getHeight();
+
                 //All directional lights (caster and non-caster) are sent.
                 //Then non-directional shadow-casting shadow lights are sent.
                 size_t shadowLightIdx = 0;
@@ -1911,68 +2170,69 @@ namespace Ogre
                         lightPos = viewMatrix * Vector3( lightPos4.x, lightPos4.y, lightPos4.z );
 
                     //vec3 lights[numLights].position
-                    *passBufferPtr++ = lightPos.x;
-                    *passBufferPtr++ = lightPos.y;
-                    *passBufferPtr++ = lightPos.z;
+                    *light0BufferPtr++ = lightPos.x;
+                    *light0BufferPtr++ = lightPos.y;
+                    *light0BufferPtr++ = lightPos.z;
 #if !OGRE_NO_FINE_LIGHT_MASK_GRANULARITY
-                    *reinterpret_cast<uint32 * RESTRICT_ALIAS>( passBufferPtr ) = light->getLightMask();
+                    *reinterpret_cast<uint32 * RESTRICT_ALIAS>(light0BufferPtr) = light->getLightMask();
 #endif
-                    ++passBufferPtr;
+                    ++light0BufferPtr;
 
                     //vec3 lights[numLights].diffuse
                     ColourValue colour = light->getDiffuseColour() *
                                          light->getPowerScale();
-                    *passBufferPtr++ = colour.r;
-                    *passBufferPtr++ = colour.g;
-                    *passBufferPtr++ = colour.b;
-                    *reinterpret_cast<uint32 * RESTRICT_ALIAS>( passBufferPtr ) =
+                    *light0BufferPtr++ = colour.r;
+                    *light0BufferPtr++ = colour.g;
+                    *light0BufferPtr++ = colour.b;
+                    *reinterpret_cast<uint32 * RESTRICT_ALIAS>(light0BufferPtr) =
                             realNumDirectionalLights - shadowCastingDirLights;
-                    ++passBufferPtr;
+                    ++light0BufferPtr;
 
                     //vec3 lights[numLights].specular
                     colour = light->getSpecularColour() * light->getPowerScale();
-                    *passBufferPtr++ = colour.r;
-                    *passBufferPtr++ = colour.g;
-                    *passBufferPtr++ = colour.b;
-                    ++passBufferPtr;
+                    *light0BufferPtr++ = colour.r;
+                    *light0BufferPtr++ = colour.g;
+                    *light0BufferPtr++ = colour.b;
+                    ++light0BufferPtr;
 
                     //vec3 lights[numLights].attenuation;
                     Real attenRange     = light->getAttenuationRange();
                     Real attenLinear    = light->getAttenuationLinear();
                     Real attenQuadratic = light->getAttenuationQuadric();
-                    *passBufferPtr++ = attenRange;
-                    *passBufferPtr++ = attenLinear;
-                    *passBufferPtr++ = attenQuadratic;
-                    ++passBufferPtr;
+                    *light0BufferPtr++ = attenRange;
+                    *light0BufferPtr++ = attenLinear;
+                    *light0BufferPtr++ = attenQuadratic;
+                    ++light0BufferPtr;
 
-                    const Vector2 rectSize = light->getDerivedRectSize();
+                    const uint16 lightProfileIdx = light->getLightProfileIdx();
 
-                    //vec4 lights[numLights].spotDirection;
+                    // vec4 lights[numLights].spotDirection;
                     Vector3 spotDir = viewMatrix3 * light->getDerivedDirection();
-                    *passBufferPtr++ = spotDir.x;
-                    *passBufferPtr++ = spotDir.y;
-                    *passBufferPtr++ = spotDir.z;
-                    *passBufferPtr++ = 1.0f / rectSize.x;
+                    *light0BufferPtr++ = spotDir.x;
+                    *light0BufferPtr++ = spotDir.y;
+                    *light0BufferPtr++ = spotDir.z;
+                    *light0BufferPtr++ =
+                        ( static_cast<float>( lightProfileIdx ) + 0.5f ) * invHeightLightProfileTex;
 
                     //vec4 lights[numLights].spotParams;
                     if( light->getType() != Light::LT_AREA_APPROX )
                     {
                         Radian innerAngle = light->getSpotlightInnerAngle();
                         Radian outerAngle = light->getSpotlightOuterAngle();
-                        *passBufferPtr++ = 1.0f / ( cosf( innerAngle.valueRadians() * 0.5f ) -
+                        *light0BufferPtr++ = 1.0f / ( cosf( innerAngle.valueRadians() * 0.5f ) -
                                                     cosf( outerAngle.valueRadians() * 0.5f ) );
-                        *passBufferPtr++ = cosf( outerAngle.valueRadians() * 0.5f );
-                        *passBufferPtr++ = light->getSpotlightFalloff();
+                        *light0BufferPtr++ = cosf( outerAngle.valueRadians() * 0.5f );
+                        *light0BufferPtr++ = light->getSpotlightFalloff();
                     }
                     else
                     {
                         Quaternion qRot = light->getParentNode()->_getDerivedOrientation();
                         Vector3 xAxis = viewMatrix3 * qRot.xAxis();
-                        *passBufferPtr++ = xAxis.x;
-                        *passBufferPtr++ = xAxis.y;
-                        *passBufferPtr++ = xAxis.z;
+                        *light0BufferPtr++ = xAxis.x;
+                        *light0BufferPtr++ = xAxis.y;
+                        *light0BufferPtr++ = xAxis.z;
                     }
-                    *passBufferPtr++ = 1.0f / rectSize.y;
+                    *light0BufferPtr++ = 0.0f;
 
                 }
             }
@@ -1989,37 +2249,40 @@ namespace Ogre
                     Vector3 lightPos = viewMatrix3 * Vector3( lightPos4.x, lightPos4.y, lightPos4.z );
 
                     //vec3 lights[numLights].position
-                    *passBufferPtr++ = lightPos.x;
-                    *passBufferPtr++ = lightPos.y;
-                    *passBufferPtr++ = lightPos.z;
+                    *light0BufferPtr++ = lightPos.x;
+                    *light0BufferPtr++ = lightPos.y;
+                    *light0BufferPtr++ = lightPos.z;
 #if !OGRE_NO_FINE_LIGHT_MASK_GRANULARITY
-                    *reinterpret_cast<uint32 * RESTRICT_ALIAS>( passBufferPtr ) =
+                    *reinterpret_cast<uint32 * RESTRICT_ALIAS>(light0BufferPtr) =
                             globalLightList.lights[i]->getLightMask();
 #endif
-                    ++passBufferPtr;
+                    ++light0BufferPtr;
 
                     //vec3 lights[numLights].diffuse
                     ColourValue colour = globalLightList.lights[i]->getDiffuseColour() *
                                          globalLightList.lights[i]->getPowerScale();
-                    *passBufferPtr++ = colour.r;
-                    *passBufferPtr++ = colour.g;
-                    *passBufferPtr++ = colour.b;
-                    *reinterpret_cast<uint32 * RESTRICT_ALIAS>( passBufferPtr ) =
+                    *light0BufferPtr++ = colour.r;
+                    *light0BufferPtr++ = colour.g;
+                    *light0BufferPtr++ = colour.b;
+                    *reinterpret_cast<uint32 * RESTRICT_ALIAS>(light0BufferPtr) =
                             realNumDirectionalLights;
-                    ++passBufferPtr;
+                    ++light0BufferPtr;
 
                     //vec3 lights[numLights].specular
                     colour = globalLightList.lights[i]->getSpecularColour() * globalLightList.lights[i]->getPowerScale();
-                    *passBufferPtr++ = colour.r;
-                    *passBufferPtr++ = colour.g;
-                    *passBufferPtr++ = colour.b;
-                    ++passBufferPtr;
+                    *light0BufferPtr++ = colour.r;
+                    *light0BufferPtr++ = colour.g;
+                    *light0BufferPtr++ = colour.b;
+                    ++light0BufferPtr;
                 }
 
-                memset( passBufferPtr, 0,
+                memset(light0BufferPtr, 0,
                         (numDirectionalLights - realNumDirectionalLights) * sizeof(float) * 4u * 3u );
-                passBufferPtr += (numDirectionalLights - realNumDirectionalLights) * 4u * 3u;
+                light0BufferPtr += (numDirectionalLights - realNumDirectionalLights) * 4u * 3u;
             }
+
+            if( !mUseLightBuffers )
+                passBufferPtr = light0BufferPtr;
 
             float areaLightNumMipmaps = 0.0f;
             float areaLightNumMipmapsSpecFactor = 0.0f;
@@ -2051,6 +2314,9 @@ namespace Ogre
 
             std::sort( mAreaLights.begin(), mAreaLights.end(), SortByTextureLightMaskIdx );
 
+            if( !mUseLightBuffers )
+                light1BufferPtr = passBufferPtr;
+
             for( size_t i=0; i<realNumAreaApproxLights; ++i )
             {
                 Light const *light = mAreaLights[i];
@@ -2059,86 +2325,89 @@ namespace Ogre
                 Vector3 lightPos = viewMatrix * Vector3( lightPos4.x, lightPos4.y, lightPos4.z );
 
                 //vec3 areaApproxLights[numLights].position
-                *passBufferPtr++ = lightPos.x;
-                *passBufferPtr++ = lightPos.y;
-                *passBufferPtr++ = lightPos.z;
+                *light1BufferPtr++ = lightPos.x;
+                *light1BufferPtr++ = lightPos.y;
+                *light1BufferPtr++ = lightPos.z;
 #if !OGRE_NO_FINE_LIGHT_MASK_GRANULARITY
-                *reinterpret_cast<uint32 * RESTRICT_ALIAS>( passBufferPtr ) = light->getLightMask();
+                *reinterpret_cast<uint32 * RESTRICT_ALIAS>(light1BufferPtr) = light->getLightMask();
 #endif
-                ++passBufferPtr;
+                ++light1BufferPtr;
 
                 //vec3 areaApproxLights[numLights].diffuse
                 ColourValue colour = light->getDiffuseColour() *
                                      light->getPowerScale();
-                *passBufferPtr++ = colour.r;
-                *passBufferPtr++ = colour.g;
-                *passBufferPtr++ = colour.b;
-                *passBufferPtr++ = areaLightNumMipmaps *
+                *light1BufferPtr++ = colour.r;
+                *light1BufferPtr++ = colour.g;
+                *light1BufferPtr++ = colour.b;
+                *light1BufferPtr++ = areaLightNumMipmaps *
                                    (light->mTexLightMaskDiffuseMipStart / 65535.0f);
 
                 //vec3 areaApproxLights[numLights].specular
                 colour = light->getSpecularColour() * light->getPowerScale();
-                *passBufferPtr++ = colour.r;
-                *passBufferPtr++ = colour.g;
-                *passBufferPtr++ = colour.b;
-                *passBufferPtr++ = areaLightNumMipmapsSpecFactor;
+                *light1BufferPtr++ = colour.r;
+                *light1BufferPtr++ = colour.g;
+                *light1BufferPtr++ = colour.b;
+                *light1BufferPtr++ = areaLightNumMipmapsSpecFactor;
 
                 //vec4 areaApproxLights[numLights].attenuation;
                 Real attenRange     = light->getAttenuationRange();
                 Real attenLinear    = light->getAttenuationLinear();
                 Real attenQuadratic = light->getAttenuationQuadric();
-                *passBufferPtr++ = attenRange;
-                *passBufferPtr++ = attenLinear;
-                *passBufferPtr++ = attenQuadratic;
-                *passBufferPtr++ = static_cast<float>( light->mTextureLightMaskIdx );
+                *light1BufferPtr++ = attenRange;
+                *light1BufferPtr++ = attenLinear;
+                *light1BufferPtr++ = attenQuadratic;
+                *light1BufferPtr++ = static_cast<float>( light->mTextureLightMaskIdx );
 
                 const Vector2 rectSize = light->getDerivedRectSize();
 
                 //vec4 areaApproxLights[numLights].direction;
                 Vector3 areaDir = viewMatrix3 * light->getDerivedDirection();
-                *passBufferPtr++ = areaDir.x;
-                *passBufferPtr++ = areaDir.y;
-                *passBufferPtr++ = areaDir.z;
-                *passBufferPtr++ = 1.0f / rectSize.x;
+                *light1BufferPtr++ = areaDir.x;
+                *light1BufferPtr++ = areaDir.y;
+                *light1BufferPtr++ = areaDir.z;
+                *light1BufferPtr++ = 1.0f / rectSize.x;
 
                 //vec4 areaApproxLights[numLights].tangent;
                 Quaternion qRot = light->getParentNode()->_getDerivedOrientation();
                 Vector3 xAxis = viewMatrix3 * qRot.xAxis();
-                *passBufferPtr++ = xAxis.x;
-                *passBufferPtr++ = xAxis.y;
-                *passBufferPtr++ = xAxis.z;
-                *passBufferPtr++ = 1.0f / rectSize.y;
+                *light1BufferPtr++ = xAxis.x;
+                *light1BufferPtr++ = xAxis.y;
+                *light1BufferPtr++ = xAxis.z;
+                *light1BufferPtr++ = 1.0f / rectSize.y;
 
                 //vec4 doubleSided;
-                *passBufferPtr++ = light->getDoubleSided() ? 1.0f : 0.0f;
-                *reinterpret_cast<uint32 * RESTRICT_ALIAS>( passBufferPtr ) =
+                *light1BufferPtr++ = light->getDoubleSided() ? 1.0f : 0.0f;
+                *reinterpret_cast<uint32 * RESTRICT_ALIAS>(light1BufferPtr) =
                         realNumAreaApproxLights;
-                ++passBufferPtr;
-                *reinterpret_cast<uint32 * RESTRICT_ALIAS>( passBufferPtr ) =
+                ++light1BufferPtr;
+                *reinterpret_cast<uint32 * RESTRICT_ALIAS>(light1BufferPtr) =
                         realNumAreaApproxLightsWithMask;
-                ++passBufferPtr;
-                *passBufferPtr++ = 0.0f;
+                ++light1BufferPtr;
+                *light1BufferPtr++ = 0.0f;
 
 #if OGRE_ENABLE_LIGHT_OBB_RESTRAINT
                 if( mUseObbRestraintAreaApprox )
                 {
                     //float4 obbFadeFactorApprox
                     const Vector3 obbRestraintFadeFactor = light->_getObbRestraintFadeFactor();
-                    *passBufferPtr++ = obbRestraintFadeFactor.x;
-                    *passBufferPtr++ = obbRestraintFadeFactor.y;
-                    *passBufferPtr++ = obbRestraintFadeFactor.z;
-                    *passBufferPtr++ = 0.0f;
+                    *light1BufferPtr++ = obbRestraintFadeFactor.x;
+                    *light1BufferPtr++ = obbRestraintFadeFactor.y;
+                    *light1BufferPtr++ = obbRestraintFadeFactor.z;
+                    *light1BufferPtr++ = 0.0f;
 
                     //float4x3 obbRestraint;
-                    passBufferPtr = fillObbRestraint( light, viewMatrix, passBufferPtr );
+                    light1BufferPtr = fillObbRestraint( light, viewMatrix, light1BufferPtr);
                 }
 #endif
             }
 
-            memset( passBufferPtr, 0, (numAreaApproxLights - realNumAreaApproxLights) *
+            memset(light1BufferPtr, 0, (numAreaApproxLights - realNumAreaApproxLights) *
                     sizeof(float) * 4u * numAreaApproxFloat4Vars );
-            passBufferPtr += (numAreaApproxLights - realNumAreaApproxLights) *
+            light1BufferPtr += (numAreaApproxLights - realNumAreaApproxLights) *
                              4u * numAreaApproxFloat4Vars;
+
+            if( !mUseLightBuffers )
+                passBufferPtr = light1BufferPtr;
 
             mAreaLights.reserve( numAreaLtcLights );
             mAreaLights.clear();
@@ -2155,6 +2424,9 @@ namespace Ogre
 
             //std::sort( mAreaLights.begin(), mAreaLights.end(), SortByTextureLightMaskIdx );
 
+            if( !mUseLightBuffers )
+                light2BufferPtr = passBufferPtr;
+
             for( size_t i=0; i<realNumAreaLtcLights; ++i )
             {
                 Light const *light = mAreaLights[i];
@@ -2163,30 +2435,30 @@ namespace Ogre
                 Vector3 lightPos = viewMatrix * Vector3( lightPos4.x, lightPos4.y, lightPos4.z );
 
                 //vec3 areaLtcLights[numLights].position
-                *passBufferPtr++ = lightPos.x;
-                *passBufferPtr++ = lightPos.y;
-                *passBufferPtr++ = lightPos.z;
+                *light2BufferPtr++ = lightPos.x;
+                *light2BufferPtr++ = lightPos.y;
+                *light2BufferPtr++ = lightPos.z;
 #if !OGRE_NO_FINE_LIGHT_MASK_GRANULARITY
-                *reinterpret_cast<uint32 * RESTRICT_ALIAS>( passBufferPtr ) = light->getLightMask();
+                *reinterpret_cast<uint32 * RESTRICT_ALIAS>(light2BufferPtr) = light->getLightMask();
 #endif
-                ++passBufferPtr;
+                ++light2BufferPtr;
 
                 const Real attenRange   = light->getAttenuationRange();
 
                 //vec3 areaLtcLights[numLights].diffuse
                 ColourValue colour = light->getDiffuseColour() *
                                      light->getPowerScale();
-                *passBufferPtr++ = colour.r;
-                *passBufferPtr++ = colour.g;
-                *passBufferPtr++ = colour.b;
-                *passBufferPtr++ = attenRange;
+                *light2BufferPtr++ = colour.r;
+                *light2BufferPtr++ = colour.g;
+                *light2BufferPtr++ = colour.b;
+                *light2BufferPtr++ = attenRange;
 
                 //vec3 areaLtcLights[numLights].specular
                 colour = light->getSpecularColour() * light->getPowerScale();
-                *passBufferPtr++ = colour.r;
-                *passBufferPtr++ = colour.g;
-                *passBufferPtr++ = colour.b;
-                *passBufferPtr++ = light->getDoubleSided() ? 1.0f : 0.0f;
+                *light2BufferPtr++ = colour.r;
+                *light2BufferPtr++ = colour.g;
+                *light2BufferPtr++ = colour.b;
+                *light2BufferPtr++ = light->getDoubleSided() ? 1.0f : 0.0f;
 
                 const Vector2 rectSize = light->getDerivedRectSize() * 0.5f;
                 Quaternion qRot = light->getParentNode()->_getDerivedOrientation();
@@ -2207,20 +2479,20 @@ namespace Ogre
 
                 for( size_t j=0; j<4u; ++j )
                 {
-                    *passBufferPtr++ = rectPoints[j].x;
-                    *passBufferPtr++ = rectPoints[j].y;
-                    *passBufferPtr++ = rectPoints[j].z;
+                    *light2BufferPtr++ = rectPoints[j].x;
+                    *light2BufferPtr++ = rectPoints[j].y;
+                    *light2BufferPtr++ = rectPoints[j].z;
 #if OGRE_ENABLE_LIGHT_OBB_RESTRAINT
                     if( j == 0u )
                     {
-                        *reinterpret_cast<uint32 * RESTRICT_ALIAS>(passBufferPtr) = realNumAreaLtcLights;
-                        ++passBufferPtr;
+                        *reinterpret_cast<uint32 * RESTRICT_ALIAS>(light2BufferPtr) = realNumAreaLtcLights;
+                        ++light2BufferPtr;
                     }
                     else
-                        *passBufferPtr++ = obbRestraintFadeFactor[j-1u];
+                        *light2BufferPtr++ = obbRestraintFadeFactor[j-1u];
 #else
-                    *reinterpret_cast<uint32 * RESTRICT_ALIAS>(passBufferPtr) = realNumAreaLtcLights;
-                    ++passBufferPtr;
+                    *reinterpret_cast<uint32 * RESTRICT_ALIAS>(light2BufferPtr) = realNumAreaLtcLights;
+                    ++light2BufferPtr;
 #endif
                 }
 
@@ -2228,14 +2500,17 @@ namespace Ogre
                 if( mUseObbRestraintAreaLtc )
                 {
                     //float4x3 obbRestraint;
-                    passBufferPtr = fillObbRestraint( light, viewMatrix, passBufferPtr );
+                    light2BufferPtr = fillObbRestraint( light, viewMatrix, light2BufferPtr);
                 }
 #endif
             }
 
-            memset( passBufferPtr, 0, (numAreaLtcLights - realNumAreaLtcLights) *
+            memset(light2BufferPtr, 0, (numAreaLtcLights - realNumAreaLtcLights) *
                     sizeof(float) * 4u * numAreaLtcFloat4Vars );
-            passBufferPtr += (numAreaLtcLights - realNumAreaLtcLights) * 4u * numAreaLtcFloat4Vars;
+            light2BufferPtr += (numAreaLtcLights - realNumAreaLtcLights) * 4u * numAreaLtcFloat4Vars;
+
+            if( !mUseLightBuffers )
+                passBufferPtr = light2BufferPtr;
 
             if( shadowNode )
             {
@@ -2277,6 +2552,12 @@ namespace Ogre
                 mVctLighting->fillConstBufferData( viewMatrix, passBufferPtr );
                 passBufferPtr += mVctLighting->getConstBufferSize() >> 2u;
             }
+
+            if( mIrradianceField )
+            {
+                mIrradianceField->fillConstBufferData( viewMatrix, passBufferPtr );
+                passBufferPtr += mIrradianceField->getConstBufferSize() >> 2u;
+            }
         }
         else
         {
@@ -2302,6 +2583,19 @@ namespace Ogre
                                                       sceneManager, passBufferPtr );
 
         assert( (size_t)(passBufferPtr - startupPtr) * 4u == mapSize );
+
+        if( mUseLightBuffers )
+        {
+            assert( ( size_t )( light0BufferPtr - light0startupPtr ) * 4u == mapSizeLight0 );
+            assert( ( size_t )( light1BufferPtr - light1startupPtr ) * 4u == mapSizeLight1 );
+            assert( ( size_t )( light2BufferPtr - light2startupPtr ) * 4u == mapSizeLight2 );
+            if( mapSizeLight0 > 0 )
+                light0Buffer->unmap( UO_KEEP_PERSISTENT );
+            if( mapSizeLight1 > 0 )
+                light1Buffer->unmap( UO_KEEP_PERSISTENT );
+            if( mapSizeLight2 > 0 )
+                light2Buffer->unmap( UO_KEEP_PERSISTENT );
+        }
 
         passBuffer->unmap( UO_KEEP_PERSISTENT );
 
@@ -2339,13 +2633,21 @@ namespace Ogre
                 mTexUnitSlotStart += 1;
             if( mVctLighting )
                 mTexUnitSlotStart += mVctLighting->getNumVoxelTextures();
+            if( mIrradianceField )
+                mTexUnitSlotStart += 2u;
             if( mParallaxCorrectedCubemap && !mParallaxCorrectedCubemap->isRendering() )
                 mTexUnitSlotStart += 1;
             if( !mPrePassTextures->empty() )
                 mTexUnitSlotStart += 2;
             if( mPrePassMsaaDepthTexture )
                 mTexUnitSlotStart += 1;
+            if( mDepthTexture )
+                mTexUnitSlotStart += 1;
             if( mSsrTexture )
+                mTexUnitSlotStart += 1;
+            if( mDepthTextureNoMsaa && mDepthTexture != mDepthTextureNoMsaa )
+                mTexUnitSlotStart += 1;
+            if( mRefractionsTexture )
                 mTexUnitSlotStart += 1;
             if( mAreaLightMasks && getProperty( HlmsBaseProp::LightsAreaTexMask ) > 0 )
             {
@@ -2356,16 +2658,12 @@ namespace Ogre
             {
                 mUsingAreaLightMasks = false;
             }
-
-            if( mLtcMatrixTexture && getProperty( HlmsBaseProp::LightsAreaLtc ) > 0 )
-            {
+            if( mLightProfilesTexture )
                 mTexUnitSlotStart += 1;
-                mUsingLtcMatrix = true;
-            }
-            else
-            {
-                mUsingLtcMatrix = false;
-            }
+
+            /// LTC / BRDF IBL reserved slot
+            if( mLtcMatrixTexture )
+                ++mTexUnitSlotStart;
 
             for( size_t i=0; i<3u; ++i )
             {
@@ -2431,6 +2729,27 @@ namespace Ogre
                                                                            passBuffer->
                                                                            getTotalSizeBytes() );
 
+            if( mUseLightBuffers )
+            {
+                ConstBufferPacked *light0Buffer = mLight0Buffers[mCurrentPassBuffer - 1];
+                *commandBuffer->addCommand<CbShaderBuffer>() = CbShaderBuffer(
+                    VertexShader, 4, light0Buffer, 0, light0Buffer->getTotalSizeBytes() );
+                *commandBuffer->addCommand<CbShaderBuffer>() =
+                    CbShaderBuffer( PixelShader, 4, light0Buffer, 0, light0Buffer->getTotalSizeBytes() );
+
+                ConstBufferPacked *light1Buffer = mLight1Buffers[mCurrentPassBuffer - 1];
+                *commandBuffer->addCommand<CbShaderBuffer>() = CbShaderBuffer(
+                    VertexShader, 5, light1Buffer, 0, light1Buffer->getTotalSizeBytes() );
+                *commandBuffer->addCommand<CbShaderBuffer>() =
+                    CbShaderBuffer( PixelShader, 5, light1Buffer, 0, light1Buffer->getTotalSizeBytes() );
+
+                ConstBufferPacked *light2Buffer = mLight2Buffers[mCurrentPassBuffer - 1];
+                *commandBuffer->addCommand<CbShaderBuffer>() = CbShaderBuffer(
+                    VertexShader, 6, light2Buffer, 0, light2Buffer->getTotalSizeBytes() );
+                *commandBuffer->addCommand<CbShaderBuffer>() =
+                    CbShaderBuffer( PixelShader, 6, light2Buffer, 0, light2Buffer->getTotalSizeBytes() );
+            }
+
             if( !casterPass )
             {
                 size_t texUnit = mReservedTexSlots;
@@ -2457,10 +2776,28 @@ namespace Ogre
                             CbTexture( texUnit++, mPrePassMsaaDepthTexture, 0 );
                 }
 
+                if( mDepthTexture )
+                {
+                    *commandBuffer->addCommand<CbTexture>() =
+                            CbTexture( texUnit++, mDepthTexture, mDecalsSamplerblock );
+                }
+
                 if( mSsrTexture )
                 {
                     *commandBuffer->addCommand<CbTexture>() =
                             CbTexture( texUnit++, mSsrTexture, 0 );
+                }
+
+                if( mDepthTextureNoMsaa && mDepthTextureNoMsaa != mPrePassMsaaDepthTexture )
+                {
+                    *commandBuffer->addCommand<CbTexture>() =
+                            CbTexture( texUnit++, mDepthTextureNoMsaa, mDecalsSamplerblock );
+                }
+
+                if( mRefractionsTexture )
+                {
+                    *commandBuffer->addCommand<CbTexture>() =
+                            CbTexture( texUnit++, mRefractionsTexture, mDecalsSamplerblock );
                 }
 
                 if( mIrradianceVolume )
@@ -2488,6 +2825,16 @@ namespace Ogre
                     }
                 }
 
+                if( mIrradianceField )
+                {
+                    TODO_irradianceField_samplerblock;
+                    const HlmsSamplerblock *samplerblock = mDecalsSamplerblock;
+                    *commandBuffer->addCommand<CbTexture>() =
+                        CbTexture( texUnit++, mIrradianceField->getIrradianceTex(), samplerblock );
+                    *commandBuffer->addCommand<CbTexture>() =
+                        CbTexture( texUnit++, mIrradianceField->getDepthVarianceTex(), samplerblock );
+                }
+
                 if( mUsingAreaLightMasks )
                 {
                     *commandBuffer->addCommand<CbTexture>() = CbTexture( texUnit,
@@ -2496,7 +2843,15 @@ namespace Ogre
                     ++texUnit;
                 }
 
-                if( mUsingLtcMatrix )
+                if( mLightProfilesTexture )
+                {
+                    *commandBuffer->addCommand<CbTexture>() = CbTexture( texUnit,
+                                                                         mLightProfilesTexture,
+                                                                         mAreaLightMasksSamplerblock );
+                    ++texUnit;
+                }
+
+                if( mLtcMatrixTexture )
                 {
                     *commandBuffer->addCommand<CbTexture>() = CbTexture( texUnit,
                                                                          mLtcMatrixTexture,
@@ -2772,7 +3127,7 @@ namespace Ogre
                 {
                     // If not combined with skeleton animation, pose animations are gonna need 1 vec4's
                     // for pose data (base vertex, num vertices), enough vec4's to accomodate
-                    // the weight of each pose, 3 vec4's for worldMat, and 4 vec4's for worldView. 
+                    // the weight of each pose, 3 vec4's for worldMat, and 4 vec4's for worldView.
                     const size_t minimumTexBufferSize = 4 + poseWeightsNumFloats + 3*4 + 4*4;
                     bool exceedsTexBuffer = (currentMappedTexBuffer - mStartMappedTexBuffer) +
                                                 minimumTexBufferSize >= mCurrentTexBufferSize;
@@ -2795,7 +3150,7 @@ namespace Ogre
                     *currentMappedConstBuffer = (distToWorldMatStart << 9 ) |
                             (datablock->getAssignedSlot() & 0x1FF);
                 }
-                
+
                 uint8 meshLod = queuedRenderable.movableObject->getCurrentMeshLod();
                 const VertexArrayObjectArray &vaos = queuedRenderable.renderable->getVaos(
                             static_cast<VertexPass>(casterPass) );
@@ -2851,11 +3206,14 @@ namespace Ogre
         #endif
                 }
 
-                TexBufferPacked* poseBuf = queuedRenderable.renderable->getPoseTexBuffer();
-                *commandBuffer->addCommand<CbShaderBuffer>() = CbShaderBuffer( VertexShader,
-                                                                               4, poseBuf, 0,
-                                                                               poseBuf->
-                                                                               getTotalSizeBytes() );
+                size_t numTextures = 0u;
+                if( datablock->mTexturesDescSet )
+                    numTextures = datablock->mTexturesDescSet->mTextures.size();
+
+                TexBufferPacked *poseBuf = queuedRenderable.renderable->getPoseTexBuffer();
+                *commandBuffer->addCommand<CbShaderBuffer>() =
+                    CbShaderBuffer( VertexShader, mTexUnitSlotStart + numTextures, poseBuf, 0,
+                                    poseBuf->getTotalSizeBytes() );
             }
 
             //If the next entity will not be skeletally animated, we'll need
@@ -2868,8 +3226,8 @@ namespace Ogre
             currentMappedTexBuffer = mStartMappedTexBuffer + currentConstOffset;
         }
 
-        *reinterpret_cast<float * RESTRICT_ALIAS>( currentMappedConstBuffer+1 ) = datablock->
-                                                                                    mShadowConstantBias;
+        *reinterpret_cast<float * RESTRICT_ALIAS>( currentMappedConstBuffer + 1 ) =
+            datablock->mShadowConstantBias * mConstantBiasScale;
 #if !OGRE_NO_FINE_LIGHT_MASK_GRANULARITY
         *( currentMappedConstBuffer+2u ) = queuedRenderable.movableObject->getLightMask();
 #endif
@@ -2958,6 +3316,51 @@ namespace Ogre
 
             mPassBuffers.clear();
         }
+
+        ///////// light buffers
+        {
+            ConstBufferPackedVec::const_iterator itor = mLight0Buffers.begin();
+            ConstBufferPackedVec::const_iterator end = mLight0Buffers.end();
+
+            while (itor != end)
+            {
+                if ((*itor)->getMappingState() != MS_UNMAPPED)
+                    (*itor)->unmap(UO_UNMAP_ALL);
+                mVaoManager->destroyConstBuffer(*itor);
+                ++itor;
+            }
+
+            mLight0Buffers.clear();
+        }
+        {
+            ConstBufferPackedVec::const_iterator itor = mLight1Buffers.begin();
+            ConstBufferPackedVec::const_iterator end = mLight1Buffers.end();
+
+            while (itor != end)
+            {
+                if ((*itor)->getMappingState() != MS_UNMAPPED)
+                    (*itor)->unmap(UO_UNMAP_ALL);
+                mVaoManager->destroyConstBuffer(*itor);
+                ++itor;
+            }
+
+            mLight1Buffers.clear();
+        }
+        {
+            ConstBufferPackedVec::const_iterator itor = mLight2Buffers.begin();
+            ConstBufferPackedVec::const_iterator end = mLight2Buffers.end();
+
+            while (itor != end)
+            {
+                if ((*itor)->getMappingState() != MS_UNMAPPED)
+                    (*itor)->unmap(UO_UNMAP_ALL);
+                mVaoManager->destroyConstBuffer(*itor);
+                ++itor;
+            }
+
+            mLight2Buffers.clear();
+        }
+
     }
     //-----------------------------------------------------------------------------------
     void HlmsPbs::postCommandBufferExecution( CommandBuffer *commandBuffer )
@@ -2981,13 +3384,60 @@ namespace Ogre
         mCurrentPassBuffer  = 0;
     }
     //-----------------------------------------------------------------------------------
+    void HlmsPbs::resetIblSpecMipmap( uint8 numMipmaps )
+    {
+        if( numMipmaps != 0u )
+        {
+            mAutoSpecIblMaxMipmap = false;
+            mMaxSpecIblMipmap = numMipmaps;
+        }
+        else
+        {
+            mAutoSpecIblMaxMipmap = true;
+            mMaxSpecIblMipmap = 1.0f;
+
+            HlmsDatablockMap::const_iterator itor = mDatablocks.begin();
+            HlmsDatablockMap::const_iterator endt = mDatablocks.end();
+
+            while( itor != endt )
+            {
+                assert( dynamic_cast<HlmsPbsDatablock*>( itor->second.datablock ) );
+                HlmsPbsDatablock *datablock = static_cast<HlmsPbsDatablock*>(itor->second.datablock);
+
+                TextureGpu *reflTexture = datablock->getTexture( PBSM_REFLECTION );
+                if( reflTexture )
+                {
+                    mMaxSpecIblMipmap =
+                            std::max<float>( reflTexture->getNumMipmaps(), mMaxSpecIblMipmap );
+                }
+                ++itor;
+            }
+
+            if( mParallaxCorrectedCubemap )
+            {
+                TextureGpu *bindTexture = mParallaxCorrectedCubemap->getBindTexture();
+                if( bindTexture )
+                {
+                    mMaxSpecIblMipmap =
+                            std::max<float>( bindTexture->getNumMipmaps(), mMaxSpecIblMipmap );
+                }
+            }
+        }
+    }
+    //-----------------------------------------------------------------------------------
+    void HlmsPbs::_notifyIblSpecMipmap( uint8 numMipmaps )
+    {
+        if( mAutoSpecIblMaxMipmap )
+            mMaxSpecIblMipmap = std::max<float>( numMipmaps, mMaxSpecIblMipmap );
+    }
+    //-----------------------------------------------------------------------------------
     void HlmsPbs::loadLtcMatrix(void)
     {
         const uint32 poolId = 992044u;
 
         TextureGpuManager *textureGpuManager = mRenderSystem->getTextureGpuManager();
         if( !textureGpuManager->hasPoolId( poolId, 64u, 64u, 1u, PFG_RGBA16_FLOAT ) )
-            textureGpuManager->reservePoolId( poolId, 64u, 64u, 2u, 1u, PFG_RGBA16_FLOAT );
+            textureGpuManager->reservePoolId( poolId, 64u, 64u, 3u, 1u, PFG_RGBA16_FLOAT );
 
         TextureGpu *ltcMat0 = textureGpuManager->createOrRetrieveTexture(
                                   "ltcMatrix0.dds", GpuPageOutStrategy::Discard,
@@ -2999,16 +3449,29 @@ namespace Ogre
                                   TextureFlags::AutomaticBatching,
                                   TextureTypes::Type2D,
                                   ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME, 0, poolId );
+        TextureGpu *brtfLut2 = textureGpuManager->createOrRetrieveTexture(
+                                  "brtfLutDfg.dds", GpuPageOutStrategy::Discard,
+                                  TextureFlags::AutomaticBatching,
+                                  TextureTypes::Type2D,
+                                  ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME, 0, poolId );
 
         ltcMat0->scheduleTransitionTo( GpuResidency::Resident );
         ltcMat1->scheduleTransitionTo( GpuResidency::Resident );
+        brtfLut2->scheduleTransitionTo( GpuResidency::Resident );
 
         ltcMat0->waitForMetadata();
         ltcMat1->waitForMetadata();
+        brtfLut2->waitForMetadata();
 
-        OGRE_ASSERT_LOW( ltcMat0->getTexturePool() == ltcMat1->getTexturePool() );
+        OGRE_ASSERT_LOW(
+            ltcMat0->getTexturePool() == ltcMat1->getTexturePool() &&
+            "ltcMatrix0.dds & ltcMatrix1.dds must be the same resolution and pixel format" );
+        OGRE_ASSERT_LOW(
+            ltcMat0->getTexturePool() == brtfLut2->getTexturePool() &&
+            "ltcMatrix0.dds & brtfLutDfg2.dds must be the same resolution and pixel format" );
         OGRE_ASSERT_LOW( ltcMat0->getInternalSliceStart() == 0u );
         OGRE_ASSERT_LOW( ltcMat1->getInternalSliceStart() == 1u );
+        OGRE_ASSERT_LOW( brtfLut2->getInternalSliceStart() == 2u );
 
         mLtcMatrixTexture = ltcMat0;
     }
@@ -3037,22 +3500,18 @@ namespace Ogre
         outDataFolderPath = "Hlms/Pbs/" + shaderSyntax;
     }
     //-----------------------------------------------------------------------------------
-    void HlmsPbs::setDebugPssmSplits( bool bDebug )
+    void HlmsPbs::setDebugPssmSplits( bool bDebug ) { mDebugPssmSplits = bDebug; }
+    //-----------------------------------------------------------------------------------
+    void HlmsPbs::setPerceptualRoughness( bool bPerceptualRoughness )
     {
-        mDebugPssmSplits = bDebug;
+        mPerceptualRoughness = bPerceptualRoughness;
     }
+    //-----------------------------------------------------------------------------------
+    bool HlmsPbs::getPerceptualRoughness( void ) const { return mPerceptualRoughness; }
     //-----------------------------------------------------------------------------------
     void HlmsPbs::setShadowSettings( ShadowFilter filter )
     {
         mShadowFilter = filter;
-
-        if( mShadowFilter == ExponentialShadowMaps && mHlmsManager->getShadowMappingUseBackFaces() )
-        {
-            LogManager::getSingleton().logMessage(
-                        "QUALITY WARNING: It is highly recommended that you call "
-                        "mHlmsManager->setShadowMappingUseBackFaces( false ) when using Exponential "
-                        "Shadow Maps (HlmsPbs::setShadowSettings)" );
-        }
     }
     //-----------------------------------------------------------------------------------
     void HlmsPbs::setEsmK( uint16 K )
@@ -3079,6 +3538,11 @@ namespace Ogre
     {
         mAreaLightMasks = areaLightMask;
     }
+    //-----------------------------------------------------------------------------------
+    void HlmsPbs::setLightProfilesTexture( TextureGpu *lightProfilesTex )
+    {
+        mLightProfilesTexture = lightProfilesTex;
+    }
 #ifdef OGRE_BUILD_COMPONENT_PLANAR_REFLECTIONS
     //-----------------------------------------------------------------------------------
     void HlmsPbs::setPlanarReflections( PlanarReflections *planarReflections )
@@ -3099,6 +3563,10 @@ namespace Ogre
         mUseObbRestraintAreaLtc = areaLtc;
     }
 #endif
+    void HlmsPbs::setUseLightBuffers(bool b)
+    {
+        mUseLightBuffers = b;
+    }
 #if !OGRE_NO_JSON
     //-----------------------------------------------------------------------------------
     void HlmsPbs::_loadJson( const rapidjson::Value &jsonValue, const HlmsJson::NamedBlocks &blocks,

@@ -37,9 +37,8 @@ THE SOFTWARE.
     #define __has_builtin(x) 0
 #endif
 
-/** Undefine in <sys/endian.h> defined bswap macros for FreeBSD
- */
 #if OGRE_PLATFORM == OGRE_PLATFORM_FREEBSD
+    /// Undefine in <sys/endian.h> defined bswap macros for FreeBSD
     #undef bswap16
     #undef bswap32
     #undef bswap64
@@ -435,7 +434,7 @@ namespace Ogre {
         static inline float snorm16ToFloat( int16 v )
         {
             // -32768 & -32767 both map to -1 according to D3D10 rules.
-            return Ogre::max( v / 32767.0f, -1.0f );
+            return std::max( v / 32767.0f, -1.0f );
         }
 
         static inline int8 floatToSnorm8( float v )
@@ -454,7 +453,35 @@ namespace Ogre {
         static inline float snorm8ToFloat( int8 v )
         {
             // -128 & -127 both map to -1 according to D3D10 rules.
-            return Ogre::max( v / 127.0f, -1.0f );
+            return std::max( v / 127.0f, -1.0f );
+        }
+
+        static inline uint32 ctz32( uint32 value )
+        {
+            if( value == 0 )
+                return 32u;
+
+        #if OGRE_COMPILER == OGRE_COMPILER_MSVC
+            unsigned long trailingZero = 0;
+            _BitScanForward( &trailingZero, value );
+            return trailingZero;
+        #else
+            return __builtin_ctz( value );
+        #endif
+        }
+
+        static inline uint32 clz32( uint32 value )
+        {
+            if( value == 0 )
+                return 32u;
+
+        #if OGRE_COMPILER == OGRE_COMPILER_MSVC
+            unsigned long lastBitSet = 0;
+            _BitScanReverse( &lastBitSet, value );
+            return 31u - lastBitSet;
+        #else
+            return __builtin_clz( value );
+        #endif
         }
 
         static inline uint32 ctz64( uint64 value )
@@ -476,8 +503,14 @@ namespace Ogre {
                 _BitScanForward64( &trailingZero, value );
             #endif
             return trailingZero;
+        #elif OGRE_PLATFORM == OGRE_PLATFORM_WIN32 && OGRE_COMPILER == OGRE_COMPILER_GNUC
+            return __builtin_ctzll( value );
         #else
-            return __builtin_ctzl( value );
+            #ifdef __MINGW32__
+                return __builtin_ctzll( value );
+            #else
+                return __builtin_ctzl( value );
+            #endif
         #endif
         }
 
@@ -500,7 +533,11 @@ namespace Ogre {
             #endif
             return 63u - lastBitSet;
         #else
-            return __builtin_clzl( value );
+            #ifdef __MINGW32__
+                return __builtin_clzll( value );
+            #else
+                return __builtin_clzl( value );
+            #endif
         #endif
         }
     };

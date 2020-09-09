@@ -126,9 +126,6 @@ namespace Ogre
 
         UINT                        mStencilRef;
 
-        ID3D11ShaderResourceView * mBoundTextures[OGRE_MAX_TEXTURE_LAYERS];
-        size_t mBoundTexturesCount;
-
         // List of class instances per shader stage
         ID3D11ClassInstance* mClassInstances[6][8];
 
@@ -139,9 +136,6 @@ namespace Ogre
         typedef std::map<String, ID3D11ClassInstance*> ClassInstanceMap;
         typedef std::map<String, ID3D11ClassInstance*>::iterator ClassInstanceIterator;
         ClassInstanceMap mInstanceMap;
-
-        size_t     mLastTextureUnitState;
-		bool       mSamplerStatesChanged;
 
         D3D11FrameBufferDescMap mFrameBufferDescMap;
 
@@ -201,11 +195,7 @@ namespace Ogre
 
         /// @copydoc RenderSystem::fireDeviceEvent
         void fireDeviceEvent( D3D11Device* device, const String & name,
-                              D3D11Window *sendingWindow );
-#if !TODO_OGRE_2_2
-        void fireDeviceEvent( D3D11Device* device, const String & name,
-                              D3D11RenderWindowBase *sendingWindow = NULL ) {}
-#endif
+                              D3D11Window *sendingWindow = NULL );
 
         virtual void _setCurrentDeviceFromTexture( TextureGpu *texture ) {}
 
@@ -221,7 +211,7 @@ namespace Ogre
         virtual void endRenderPassDescriptor(void);
 
         TextureGpu* createDepthBufferFor( TextureGpu *colourTexture, bool preferDepthTexture,
-                                          PixelFormatGpu depthBufferFormat );
+                                          PixelFormatGpu depthBufferFormat, uint16 poolId );
 
         const String& getName(void) const;
 		
@@ -232,7 +222,7 @@ namespace Ogre
         void setConfigOption( const String &name, const String &value );
         void reinitialise();
         void shutdown();
-        void validateDevice(bool forceDeviceElection = false);
+        bool validateDevice(bool forceDeviceElection = false);
         void handleDeviceLost();
         void setShadingType( ShadeOptions so );
         void setLightingEnabled( bool enabled );

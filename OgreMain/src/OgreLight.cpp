@@ -56,6 +56,7 @@ namespace Ogre {
           mTexture( 0 ),
           mTextureLightMaskIdx( std::numeric_limits<uint16>::max() ),
           mTexLightMaskDiffuseMipStart( (uint16)(0.95f * 65535) ),
+          mLightProfileIdx( 0u ),
           mShadowFarDist(0),
           mShadowFarDistSquared(0),
           mShadowNearClipDist(-1),
@@ -207,7 +208,7 @@ namespace Ogre {
             -l +- sqrt( l² - 4qh ) / 2a = d
         */
         Real h = mAttenuationConst - 1.0f / lumThreshold;
-        Real rootPart = sqrt( mAttenuationLinear * mAttenuationLinear - 4.0f * mAttenuationQuad * h );
+        Real rootPart = std::sqrt( mAttenuationLinear * mAttenuationLinear - 4.0f * mAttenuationQuad * h );
         mRange = (-mAttenuationLinear + rootPart) / (2.0f * mAttenuationQuad);
 
         updateLightBounds();
@@ -663,7 +664,9 @@ namespace Ogre {
         return retVal;
     }
     //-----------------------------------------------------------------------
-    void Light::_updateCustomGpuParameter(uint16 paramIndex, const GpuProgramParameters::AutoConstantEntry& constantEntry, GpuProgramParameters *params) const
+    void Light::_updateCustomGpuParameter( uint16 paramIndex,
+                                           const GpuProgramParameters_AutoConstantEntry &constantEntry,
+                                           GpuProgramParameters *params ) const
     {
         CustomParameterMap::const_iterator i = mCustomParameters.find(paramIndex);
         if (i != mCustomParameters.end())
