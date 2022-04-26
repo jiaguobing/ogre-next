@@ -15,6 +15,7 @@ var dir_9ba68fabe7d45cd05996335e8214ea54 =
     [ "Vao", "dir_915f5e2f7b6c1845cb870011199325d4.html", "dir_915f5e2f7b6c1845cb870011199325d4" ],
     [ "WIN32", "dir_1c779f42a2ea96714ae1b39af1d220c1.html", "dir_1c779f42a2ea96714ae1b39af1d220c1" ],
     [ "Ogre.h", "_ogre_8h.html", null ],
+    [ "OgreAbiUtils.h", "_ogre_abi_utils_8h.html", "_ogre_abi_utils_8h" ],
     [ "OgreAlignedAllocator.h", "_ogre_aligned_allocator_8h.html", null ],
     [ "OgreAnimable.h", "_ogre_animable_8h.html", null ],
     [ "OgreAnimation.h", "_ogre_animation_8h.html", null ],
@@ -29,6 +30,9 @@ var dir_9ba68fabe7d45cd05996335e8214ea54 =
     [ "OgreAsyncTextureTicket.h", "_ogre_async_texture_ticket_8h.html", [
       [ "Ogre::AsyncTextureTicket", "class_ogre_1_1_async_texture_ticket.html", "class_ogre_1_1_async_texture_ticket" ],
       [ "Ogre::AsyncTextureTicket::DelayedDownload", "struct_ogre_1_1_async_texture_ticket_1_1_delayed_download.html", "struct_ogre_1_1_async_texture_ticket_1_1_delayed_download" ]
+    ] ],
+    [ "OgreAtmosphereComponent.h", "_ogre_atmosphere_component_8h.html", [
+      [ "Ogre::AtmosphereComponent", "class_ogre_1_1_atmosphere_component.html", "class_ogre_1_1_atmosphere_component" ]
     ] ],
     [ "OgreAtomicObject.h", "_ogre_atomic_object_8h.html", null ],
     [ "OgreAtomicScalar.h", "_ogre_atomic_scalar_8h.html", null ],

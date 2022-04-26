@@ -2,6 +2,20 @@ var hierarchy =
 [
     [ "_D3DCOLORVALUE", "struct___d3_d_c_o_l_o_r_v_a_l_u_e.html", null ],
     [ "_finddata_t", "struct__finddata__t.html", null ],
+    [ "Ogre::AllocatedObject< AlignAllocPolicy<> >", "class_ogre_1_1_allocated_object.html", [
+      [ "Ogre::AutoParamDataSource", "class_ogre_1_1_auto_param_data_source.html", null ],
+      [ "Ogre::Hlms", "class_ogre_1_1_hlms.html", [
+        [ "Ogre::HlmsBufferManager", "class_ogre_1_1_hlms_buffer_manager.html", [
+          [ "Ogre::HlmsPbs", "class_ogre_1_1_hlms_pbs.html", null ],
+          [ "Ogre::HlmsUnlit", "class_ogre_1_1_hlms_unlit.html", null ]
+        ] ],
+        [ "Ogre::HlmsCompute", "class_ogre_1_1_hlms_compute.html", null ],
+        [ "Ogre::HlmsLowLevel", "class_ogre_1_1_hlms_low_level.html", null ]
+      ] ],
+      [ "Ogre::SceneManager", "class_ogre_1_1_scene_manager.html", [
+        [ "Ogre::DefaultSceneManager", "class_ogre_1_1_default_scene_manager.html", null ]
+      ] ]
+    ] ],
     [ "Ogre::AtomicScalar< LoadingState >", "class_ogre_1_1_atomic_scalar.html", null ],
     [ "Ogre::AtomicScalar< ResourceHandle >", "class_ogre_1_1_atomic_scalar.html", null ],
     [ "Ogre::AtomicScalar< size_t >", "class_ogre_1_1_atomic_scalar.html", null ],
@@ -106,6 +120,7 @@ var hierarchy =
     [ "Ogre::FastArray< PartitionedSubMesh >", "class_ogre_1_1_fast_array.html", null ],
     [ "Ogre::FastArray< PerThreadData * >", "class_ogre_1_1_fast_array.html", null ],
     [ "Ogre::FastArray< Pool >", "class_ogre_1_1_fast_array.html", null ],
+    [ "Ogre::FastArray< Preset >", "class_ogre_1_1_fast_array.html", null ],
     [ "Ogre::FastArray< ProfileSample * >", "class_ogre_1_1_fast_array.html", null ],
     [ "Ogre::FastArray< QueuedInstance >", "class_ogre_1_1_fast_array.html", null ],
     [ "Ogre::FastArray< QueuedRenderable >", "class_ogre_1_1_fast_array.html", null ],
@@ -229,6 +244,7 @@ var hierarchy =
     ] ],
     [ "Ogre::_ConfigOption", "struct_ogre_1_1___config_option.html", null ],
     [ "Ogre::Aabb", "struct_ogre_1_1_aabb.html", null ],
+    [ "Ogre::AbiCookie", "struct_ogre_1_1_abi_cookie.html", null ],
     [ "Ogre::ActiveActorData", "struct_ogre_1_1_active_actor_data.html", null ],
     [ "Ogre::AlignedMemory", "class_ogre_1_1_aligned_memory.html", null ],
     [ "Ogre::AllocatedObject< Alloc >", "class_ogre_1_1_allocated_object.html", [
@@ -281,7 +297,9 @@ var hierarchy =
         [ "Ogre::NULLAsyncTicket", "class_ogre_1_1_n_u_l_l_async_ticket.html", null ],
         [ "Ogre::VulkanAsyncTicket", "class_ogre_1_1_vulkan_async_ticket.html", null ]
       ] ],
-      [ "Ogre::AutoParamDataSource", "class_ogre_1_1_auto_param_data_source.html", null ],
+      [ "Ogre::AtmosphereComponent", "class_ogre_1_1_atmosphere_component.html", [
+        [ "Ogre::AtmosphereNpr", "class_ogre_1_1_atmosphere_npr.html", null ]
+      ] ],
       [ "Ogre::Bone", "class_ogre_1_1_bone.html", null ],
       [ "Ogre::BufferPacked", "class_ogre_1_1_buffer_packed.html", [
         [ "Ogre::ConstBufferPacked", "class_ogre_1_1_const_buffer_packed.html", [
@@ -450,14 +468,6 @@ var hierarchy =
         [ "Ogre::MetalProgramFactory", "class_ogre_1_1_metal_program_factory.html", null ],
         [ "Ogre::UnifiedHighLevelGpuProgramFactory", "class_ogre_1_1_unified_high_level_gpu_program_factory.html", null ],
         [ "Ogre::VulkanProgramFactory", "class_ogre_1_1_vulkan_program_factory.html", null ]
-      ] ],
-      [ "Ogre::Hlms", "class_ogre_1_1_hlms.html", [
-        [ "Ogre::HlmsBufferManager", "class_ogre_1_1_hlms_buffer_manager.html", [
-          [ "Ogre::HlmsPbs", "class_ogre_1_1_hlms_pbs.html", null ],
-          [ "Ogre::HlmsUnlit", "class_ogre_1_1_hlms_unlit.html", null ]
-        ] ],
-        [ "Ogre::HlmsCompute", "class_ogre_1_1_hlms_compute.html", null ],
-        [ "Ogre::HlmsLowLevel", "class_ogre_1_1_hlms_low_level.html", null ]
       ] ],
       [ "Ogre::HlmsComputeJob", "class_ogre_1_1_hlms_compute_job.html", null ],
       [ "Ogre::HlmsDatablock", "class_ogre_1_1_hlms_datablock.html", [
@@ -661,9 +671,6 @@ var hierarchy =
       ] ],
       [ "Ogre::ResourceManager::ResourcePool", "class_ogre_1_1_resource_manager_1_1_resource_pool.html", null ],
       [ "Ogre::Root", "class_ogre_1_1_root.html", null ],
-      [ "Ogre::SceneManager", "class_ogre_1_1_scene_manager.html", [
-        [ "Ogre::DefaultSceneManager", "class_ogre_1_1_default_scene_manager.html", null ]
-      ] ],
       [ "Ogre::SceneManagerEnumerator", "class_ogre_1_1_scene_manager_enumerator.html", null ],
       [ "Ogre::SceneManagerFactory", "class_ogre_1_1_scene_manager_factory.html", [
         [ "Ogre::DefaultSceneManagerFactory", "class_ogre_1_1_default_scene_manager_factory.html", null ]
@@ -992,6 +999,7 @@ var hierarchy =
     [ "Ogre::ArraySphere", "class_ogre_1_1_array_sphere.html", null ],
     [ "Ogre::ArrayVector3", "class_ogre_1_1_array_vector3.html", null ],
     [ "Ogre::AsyncTextureTicket::DelayedDownload", "struct_ogre_1_1_async_texture_ticket_1_1_delayed_download.html", null ],
+    [ "Ogre::AtmosphereNpr::Preset", "struct_ogre_1_1_atmosphere_npr_1_1_preset.html", null ],
     [ "Ogre::AtomicObject< T >", "class_ogre_1_1_atomic_object.html", null ],
     [ "Ogre::AtomicScalar< T >", "class_ogre_1_1_atomic_scalar.html", null ],
     [ "Ogre::AxisAlignedBox", "class_ogre_1_1_axis_aligned_box.html", null ],
