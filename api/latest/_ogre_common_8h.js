@@ -6,7 +6,7 @@ var _ogre_common_8h =
     [ "LightArray", "_ogre_common_8h.html#ga7e63f6bb5f059998d0f3c695b6b3807f", null ],
     [ "LightClosestArray", "_ogre_common_8h.html#ga8795828980c8be4892c41f4f4b7a7337", null ],
     [ "LightList", "_ogre_common_8h.html#ga9870d1f08a71391b8716b43bb2064b2d", null ],
-    [ "NameValuePairList", "_ogre_common_8h.html#ga442a408f658c0cbfbe3e404e91a0fcc5", null ],
+    [ "NameValuePairList", "_ogre_common_8h.html#gad887d0555b483f6499fcd3a4dab0e0c6", null ],
     [ "RealRect", "_ogre_common_8h.html#ga3e1c672c1d342ffb4f122f44e342bc90", null ],
     [ "Rect", "_ogre_common_8h.html#ga2400e204f0a1d777bcc93d0efa46a85f", null ],
     [ "String", "_ogre_common_8h.html#af73bbdc8bed8a3e6fcd56bb8fa188c45", null ],
@@ -118,7 +118,12 @@ var _ogre_common_8h =
       [ "OT_PATCH_29_CONTROL_POINT", "_ogre_common_8h.html#gga0ef99399e9e670e7bb69dc373968a666a7fc197946c9e4554fe7cc866d797ead0", null ],
       [ "OT_PATCH_30_CONTROL_POINT", "_ogre_common_8h.html#gga0ef99399e9e670e7bb69dc373968a666a1172a84681f7d68bdca1cea005fd55f9", null ],
       [ "OT_PATCH_31_CONTROL_POINT", "_ogre_common_8h.html#gga0ef99399e9e670e7bb69dc373968a666a533f065a707ecf18062498a2ade0c285", null ],
-      [ "OT_PATCH_32_CONTROL_POINT", "_ogre_common_8h.html#gga0ef99399e9e670e7bb69dc373968a666aa1a5ac01c92b3fb3701d5fce1521b84d", null ]
+      [ "OT_PATCH_32_CONTROL_POINT", "_ogre_common_8h.html#gga0ef99399e9e670e7bb69dc373968a666aa1a5ac01c92b3fb3701d5fce1521b84d", null ],
+      [ "OT_DETAIL_ADJACENCY_BIT", "_ogre_common_8h.html#gga0ef99399e9e670e7bb69dc373968a666a420b09a0f1a0f15c26d507bc923b6c09", null ],
+      [ "OT_LINE_LIST_ADJ", "_ogre_common_8h.html#gga0ef99399e9e670e7bb69dc373968a666a339f42b5bdf36abf28cbcc26d026a3ea", null ],
+      [ "OT_LINE_STRIP_ADJ", "_ogre_common_8h.html#gga0ef99399e9e670e7bb69dc373968a666a85c73bd00773643f2827690f13f3fb17", null ],
+      [ "OT_TRIANGLE_LIST_ADJ", "_ogre_common_8h.html#gga0ef99399e9e670e7bb69dc373968a666a515e5f6d54c1586397526fd6488399f0", null ],
+      [ "OT_TRIANGLE_STRIP_ADJ", "_ogre_common_8h.html#gga0ef99399e9e670e7bb69dc373968a666aae5e1f6ba2b8916e54c50e8745abd346", null ]
     ] ],
     [ "OrientationMode", "_ogre_common_8h.html#ga86b4672dfa02cea53b10a52bd6344305", [
       [ "OR_DEGREE_0", "_ogre_common_8h.html#gga86b4672dfa02cea53b10a52bd6344305a8e7655727ba9332f3843f46a4d1b126b", null ],

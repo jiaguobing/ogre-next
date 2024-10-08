@@ -8,6 +8,7 @@ var struct_ogre_1_1_id_string =
     [ "getFriendlyText", "struct_ogre_1_1_id_string.html#ad57354278c96a595d7deb3b03a17e792", null ],
     [ "getReleaseText", "struct_ogre_1_1_id_string.html#aedc10c2eb528fe8c1d8d2ab415500d7b", null ],
     [ "getReleaseText", "struct_ogre_1_1_id_string.html#a75f19b4b08389a6819d02f757488741f", null ],
+    [ "getU32Value", "struct_ogre_1_1_id_string.html#a4ddc6fee76630c2aa5cb14e5ff796b37", null ],
     [ "operator!=", "struct_ogre_1_1_id_string.html#ae1f1d56fc07be8fcc9f15120c505d00f", null ],
     [ "operator+", "struct_ogre_1_1_id_string.html#afbe35aa8a428bd10ca8588921891860f", null ],
     [ "operator+=", "struct_ogre_1_1_id_string.html#a1975a7a2705e2ff8b15c3143636addec", null ],
